@@ -49,10 +49,10 @@ class Settings(BaseSettings):
         description="Comma-separated list of allowed hosts"
     )
 
-    # Alibaba Cloud OSS
-    oss_access_key_id: str = Field(..., description="Alibaba Cloud OSS Access Key ID")
-    oss_access_key_secret: str = Field(..., description="Alibaba Cloud OSS Access Key Secret")
-    oss_bucket_name: str = Field(..., description="OSS bucket name")
+    # Alibaba Cloud OSS (Optional for basic functionality)
+    oss_access_key_id: str = Field(default="", description="Alibaba Cloud OSS Access Key ID")
+    oss_access_key_secret: str = Field(default="", description="Alibaba Cloud OSS Access Key Secret")
+    oss_bucket_name: str = Field(default="", description="OSS bucket name")
     oss_endpoint: str = Field(default="oss-cn-hangzhou.aliyuncs.com", description="OSS endpoint")
     oss_region: str = Field(default="cn-hangzhou", description="OSS region")
 
