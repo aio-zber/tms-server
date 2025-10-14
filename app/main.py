@@ -66,14 +66,14 @@ async def health_check():
 async def readiness_check():
     """
     Readiness check endpoint.
-    Verifies database and cache connectivity.
+    Verifies database, cache, and GCGC User Management System connectivity.
     """
     from app.core.tms_client import tms_client
 
     checks = {
         "database": False,
         "redis": "not_configured" if not settings.redis_url else False,
-        "tms": False,
+        "gcgc_user_management": False,
     }
 
     # Check database
@@ -94,15 +94,15 @@ async def readiness_check():
         except Exception:
             pass
 
-    # Check TMS
+    # Check GCGC User Management System
     try:
-        checks["tms"] = await tms_client.health_check()
+        checks["gcgc_user_management"] = await tms_client.health_check()
     except Exception:
         pass
 
     # Consider redis as healthy if not configured
     redis_ok = checks["redis"] == "not_configured" or checks["redis"] is True
-    all_healthy = checks["database"] and redis_ok and checks["tms"]
+    all_healthy = checks["database"] and redis_ok and checks["gcgc_user_management"]
     status_code = 200 if all_healthy else 503
 
     return JSONResponse(

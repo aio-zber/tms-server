@@ -39,10 +39,10 @@ class Settings(BaseSettings):
     redis_url: str = Field(default="", description="Redis connection URL (optional)")
     redis_password: str = Field(default="", description="Redis password")
 
-    # TMS Integration
-    tms_api_url: str = Field(..., description="TMS API base URL")
-    tms_api_key: str = Field(..., description="TMS API authentication key")
-    tms_api_timeout: int = Field(default=30, description="TMS API request timeout in seconds")
+    # User Management Integration (GCGC Team Management System)
+    user_management_api_url: str = Field(..., description="User Management System (GCGC) API base URL")
+    user_management_api_key: str = Field(..., description="User Management System API authentication key")
+    user_management_api_timeout: int = Field(default=30, description="User Management API request timeout in seconds")
 
     # Security
     jwt_secret: str = Field(..., min_length=32, description="JWT secret key (min 32 chars)")
