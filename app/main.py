@@ -72,7 +72,7 @@ async def readiness_check():
 
     checks = {
         "database": False,
-        "redis": False,
+        "redis": "not_configured" if not settings.redis_url else False,
         "tms": False,
     }
 
@@ -87,11 +87,12 @@ async def readiness_check():
     except Exception:
         pass
 
-    # Check Redis
-    try:
-        checks["redis"] = await cache.exists("health_check")
-    except Exception:
-        pass
+    # Check Redis (only if configured)
+    if settings.redis_url:
+        try:
+            checks["redis"] = await cache.exists("health_check")
+        except Exception:
+            pass
 
     # Check TMS
     try:
@@ -99,7 +100,9 @@ async def readiness_check():
     except Exception:
         pass
 
-    all_healthy = all(checks.values())
+    # Consider redis as healthy if not configured
+    redis_ok = checks["redis"] == "not_configured" or checks["redis"] is True
+    all_healthy = checks["database"] and redis_ok and checks["tms"]
     status_code = 200 if all_healthy else 503
 
     return JSONResponse(

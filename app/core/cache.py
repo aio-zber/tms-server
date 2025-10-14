@@ -17,13 +17,26 @@ class RedisCache:
 
     async def connect(self) -> None:
         """Establish connection to Redis."""
-        self.redis = await aioredis.from_url(
-            settings.redis_url,
-            password=settings.redis_password if settings.redis_password else None,
-            encoding="utf-8",
-            decode_responses=True,
-            max_connections=50,
-        )
+        if not settings.redis_url:
+            print("No Redis URL provided - running without Redis cache")
+            self.redis = None
+            return
+            
+        try:
+            self.redis = await aioredis.from_url(
+                settings.redis_url,
+                password=settings.redis_password if settings.redis_password else None,
+                encoding="utf-8",
+                decode_responses=True,
+                max_connections=50,
+            )
+            # Test the connection
+            await self.redis.ping()
+            print("Connected to Redis successfully")
+        except Exception as e:
+            print(f"Warning: Could not connect to Redis: {e}")
+            print("Running without Redis cache (development mode)")
+            self.redis = None
 
     async def disconnect(self) -> None:
         """Close Redis connection."""
