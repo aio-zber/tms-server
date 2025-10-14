@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import extract_token_from_header, validate_tms_token, SecurityException
 from app.core.tms_client import tms_client, TMSAPIException
+from app.services.user_service import UserService
 
 
 async def get_current_user(
@@ -52,20 +53,35 @@ async def get_current_user(
         # Extract token from "Bearer <token>" format
         token = extract_token_from_header(authorization)
 
-        # Validate token with TMS
-        token_payload = validate_tms_token(token)
-        tms_user_id = token_payload.get("tms_user_id")
-
-        if not tms_user_id:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token: missing user information",
-            )
-
-        # Fetch user data from TMS (cached)
+        # Use UserService to get current user (fetches from TMS and syncs to DB)
         try:
-            user_data = await tms_client.get_user(tms_user_id, use_cache=True)
-            return user_data
+            user_service = UserService(db)
+            user_response = await user_service.get_current_user(token)
+            
+            # Convert UserResponse to dict for backward compatibility
+            user_dict = {
+                "id": user_response.tms_user_id,  # Use TMS ID as primary identifier
+                "tms_user_id": user_response.tms_user_id,
+                "local_user_id": user_response.id,  # Local database ID
+                "email": user_response.email,
+                "username": user_response.username,
+                "first_name": user_response.first_name,
+                "last_name": user_response.last_name,
+                "name": user_response.display_name,
+                "display_name": user_response.display_name,
+                "image": user_response.image,
+                "role": user_response.role,
+                "position_title": user_response.position_title,
+                "division": user_response.division,
+                "department": user_response.department,
+                "section": user_response.section,
+                "custom_team": user_response.custom_team,
+                "is_active": user_response.is_active,
+                "is_leader": user_response.is_leader,
+                "settings": user_response.settings,
+            }
+            return user_dict
+            
         except TMSAPIException as e:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -141,9 +157,10 @@ async def get_admin_user(
             pass
         ```
     """
-    user_role = current_user.get("role", "").lower()
+    user_role = current_user.get("role", "")
 
-    if user_role != "admin":
+    # Check for ADMIN role (TMS uses uppercase)
+    if user_role.upper() != "ADMIN":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin privileges required",
