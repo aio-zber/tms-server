@@ -22,11 +22,21 @@ class Settings(BaseSettings):
     debug: bool = Field(default=False, description="Debug mode")
 
     # Database
-    database_url: str = Field(..., description="Async PostgreSQL connection URL")
+    database_url: str = Field(..., description="Base PostgreSQL connection URL (will be converted to async)")
     database_url_sync: str = Field(..., description="Sync PostgreSQL connection URL for Alembic")
+    
+    @property
+    def async_database_url(self) -> str:
+        """
+        Convert the base DATABASE_URL to async format for SQLAlchemy.
+        Railway provides postgresql:// but we need postgresql+asyncpg:// for async operations.
+        """
+        if self.database_url.startswith("postgresql://"):
+            return self.database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return self.database_url
 
     # Redis
-    redis_url: str = Field(default="redis://localhost:6379/0", description="Redis connection URL")
+    redis_url: str = Field(default="", description="Redis connection URL (optional)")
     redis_password: str = Field(default="", description="Redis password")
 
     # TMS Integration
