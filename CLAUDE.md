@@ -164,16 +164,21 @@ app/
 
 **When a file approaches the maximum**: Split into smaller, focused modules or extract reusable utilities.
 
-## TMS Integration Architecture
+## User Management Integration Architecture (GCGC Team Management System)
 
-**Critical Concept**: This backend is a satellite to TMS. All user identity comes from TMS.
+**Critical Concept**: This backend is a satellite to the GCGC Team Management System. All user identity, authentication, and authorization comes from GCGC.
+
+**Important Naming Note**: Throughout this codebase, "TMS" may refer to either:
+- The **Team Messaging System** (this messaging application)
+- The **Team Management System** (GCGC - the user management system)
+Context should make it clear which is meant. Variables prefixed with `USER_MANAGEMENT_*` always refer to GCGC.
 
 ### Authentication Flow
-1. Client sends request with TMS JWT token in `Authorization: Bearer <token>` header
-2. Middleware validates token against TMS (via `app/core/security.py`)
-3. Extract `tms_user_id` from validated token
-4. Look up or create local `User` record (local reference only)
-5. Proceed with request using local user record
+1. Client sends request with GCGC NextAuth JWT token in `Authorization: Bearer <token>` header
+2. TMS-Server validates token by calling GCGC's `/api/v1/users/me` endpoint
+3. GCGC returns user data if token is valid
+4. TMS-Server syncs user data to local `User` record (local reference + settings only)
+5. Request proceeds with validated user information
 
 ### User Data Sync Pattern
 ```python
@@ -184,7 +189,7 @@ async def get_user_data(tms_user_id: str):
     if cached:
         return json.loads(cached)
 
-    # 2. Fetch from TMS API
+    # 2. Fetch from GCGC API
     user_data = await tms_client.get_user(tms_user_id)
 
     # 3. Cache for 5-15 minutes
@@ -196,18 +201,18 @@ async def get_user_data(tms_user_id: str):
     return user_data
 ```
 
-### TMS Client Usage (`app/core/tms_client.py`)
+### User Management Client Usage (`app/core/tms_client.py`)
 ```python
-# Validate token
-user_info = await tms_client.validate_token(jwt_token)
+# Validate token and get current user (calls GCGC /api/v1/users/me)
+user_info = await tms_client.get_current_user_from_tms(jwt_token)
 
-# Fetch user details
+# Fetch user details by ID (calls GCGC /api/v1/users/{id})
 user = await tms_client.get_user(tms_user_id)
 
-# Batch fetch users (for conversation participants)
-users = await tms_client.get_users([id1, id2, id3])
+# Search users (calls GCGC /api/v1/users/search)
+results = await tms_client.search_users("john", limit=10)
 
-# Handle errors gracefully - fallback to cache on TMS failure
+# Handle errors gracefully - fallback to cache on GCGC failure
 ```
 
 ## WebSocket Architecture
@@ -276,7 +281,7 @@ f"conversation:{conv_id}:members"  # TTL: 900s (15 min)
 ```
 
 ### Cache Invalidation
-- Invalidate on TMS webhooks (user updates)
+- Invalidate on GCGC webhooks (user updates)
 - Invalidate on conversation membership changes
 - Let presence cache expire naturally (short TTL)
 
@@ -346,7 +351,7 @@ def generate_download_url(file_key: str) -> str:
 ## Security Checklist
 
 ### Every API Endpoint Must:
-- [ ] Validate TMS JWT token via dependency injection
+- [ ] Validate GCGC NextAuth JWT token via dependency injection (`Depends(get_current_user)`)
 - [ ] Verify user has permission to access resource (conversation membership, etc.)
 - [ ] Validate all inputs with Pydantic schemas
 - [ ] Sanitize user-generated content (messages, names)
@@ -446,7 +451,7 @@ class MessageService:
         return message
 ```
 
-### TMS API Failure Handling
+### GCGC API Failure Handling
 ```python
 try:
     user_data = await tms_client.get_user(tms_user_id)
@@ -456,25 +461,28 @@ except TMSAPIException:
     if cached:
         return cached
     # If no cache, raise to client
-    raise HTTPException(status_code=503, detail="TMS unavailable")
+    raise HTTPException(status_code=503, detail="GCGC User Management System unavailable")
 ```
 
 ## Environment Variables
 
-Required variables (see `.env.example`):
+Required variables:
 - `DATABASE_URL`: Async PostgreSQL connection string (postgresql+asyncpg://...)
 - `DATABASE_URL_SYNC`: Sync PostgreSQL connection string for Alembic
-- `REDIS_URL`: Redis connection string (Alibaba Cloud Redis compatible)
-- `TMS_API_URL`: Team Management System API base URL
-- `TMS_API_KEY`: API key for authenticating with TMS
-- `JWT_SECRET`: Secret for validating TMS JWT tokens (min 32 chars)
+- `REDIS_URL`: Redis connection string (optional - runs without Redis if not set)
+- `USER_MANAGEMENT_API_URL`: GCGC Team Management System API base URL (e.g., https://gcgc-team-management-system-staging.up.railway.app)
+- `USER_MANAGEMENT_API_KEY`: API key for authenticating with GCGC
+- `USER_MANAGEMENT_API_TIMEOUT`: Request timeout in seconds (default: 30)
+- `JWT_SECRET`: JWT secret key - **MUST match GCGC's NEXTAUTH_SECRET** (min 32 chars)
 - `ALLOWED_ORIGINS`: CORS allowed origins (comma-separated)
-- `OSS_ACCESS_KEY_ID`: Alibaba Cloud OSS Access Key ID
-- `OSS_ACCESS_KEY_SECRET`: Alibaba Cloud OSS Access Key Secret
-- `OSS_BUCKET_NAME`: OSS bucket name
-- `OSS_ENDPOINT`: OSS endpoint (e.g., oss-cn-hangzhou.aliyuncs.com)
+- `OSS_ACCESS_KEY_ID`: Alibaba Cloud OSS Access Key ID (optional)
+- `OSS_ACCESS_KEY_SECRET`: Alibaba Cloud OSS Access Key Secret (optional)
+- `OSS_BUCKET_NAME`: OSS bucket name (optional)
+- `OSS_ENDPOINT`: OSS endpoint (optional, e.g., oss-cn-hangzhou.aliyuncs.com)
 - `ENVIRONMENT`: `development`, `staging`, or `production`
 - `DEBUG`: `true` or `false`
+
+**IMPORTANT**: The `JWT_SECRET` must match the `NEXTAUTH_SECRET` used by your GCGC Team Management System, otherwise token validation will fail.
 
 ## Troubleshooting
 
@@ -483,10 +491,12 @@ Required variables (see `.env.example`):
 - Ensure PostgreSQL is running: `pg_isready` (if installed locally)
 - Run migrations: `alembic upgrade head`
 
-### "TMS API authentication failed"
-- Verify `TMS_API_KEY` is valid
-- Check `TMS_API_URL` is correct and accessible
-- Test TMS endpoint manually: `curl $TMS_API_URL/health`
+### "GCGC API authentication failed" or "Invalid token"
+- Verify `JWT_SECRET` matches GCGC's `NEXTAUTH_SECRET` exactly
+- Check `USER_MANAGEMENT_API_URL` points to GCGC backend (not TMS-Client frontend!)
+- Verify `USER_MANAGEMENT_API_KEY` is valid
+- Test GCGC endpoint manually: `curl $USER_MANAGEMENT_API_URL/health`
+- Check GCGC service is running and accessible
 
 ### "WebSocket connection drops frequently"
 - Check Redis is running (used for WebSocket state)
@@ -502,9 +512,21 @@ Required variables (see `.env.example`):
 ## Additional Notes
 
 - The comprehensive project documentation is in `README.md`
+- See `MIGRATION_AUTH_FIX.md` for the recent authentication variable rename migration
 - This project uses conventional commits: `feat:`, `fix:`, `docs:`, `refactor:`, etc.
 - All PRs require tests and should not decrease code coverage
 - Keep services under 500 lines - split if approaching limit
-- Rely on TMS for user data - don't duplicate user management logic
+- Rely on GCGC for user authentication and identity - don't duplicate user management logic
 - **Security**: Never commit `.env` files, credentials, or API keys to version control
 - All sensitive configuration should be managed through environment variables
+
+## Naming Disambiguation
+
+This codebase uses "TMS" in two contexts:
+1. **TMS-Server** / **Team Messaging System**: This application (the messaging backend)
+2. **Team Management System**: GCGC (the user management system)
+
+To avoid confusion:
+- Environment variables use `USER_MANAGEMENT_*` prefix for GCGC
+- Code comments specify "GCGC Team Management System" when referring to user management
+- The `tms_client` variable refers to the GCGC client (kept for backward compatibility)

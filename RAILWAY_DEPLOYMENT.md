@@ -1,32 +1,37 @@
 # Railway Deployment Guide - TMS Server
 
-## Issue Fixed
+## ⚠️ BREAKING CHANGE: Environment Variable Rename
 
-The deployment was failing because:
-1. **Redis connection failure** - The server tried to connect to `redis://localhost:6379/0` which doesn't exist on Railway
-2. **Health check timeout** - The `/health` endpoint was unreachable due to startup failures
+**Date**: 2025-10-14
 
-## Solution Applied
+Environment variables have been renamed for clarity. See `MIGRATION_AUTH_FIX.md` for full migration guide.
 
-✅ **Made Redis optional** - Server now runs without Redis if no `REDIS_URL` is provided
-✅ **Updated health checks** - `/health/ready` endpoint handles missing Redis gracefully
-✅ **Added error handling** - Cache operations fail silently when Redis is unavailable
+## Previous Issues Fixed
+
+1. **Redis connection failure** - Server now runs without Redis if no `REDIS_URL` is provided
+2. **Health check timeout** - `/health` endpoint handles missing services gracefully
+3. **Wrong API URL** - TMS_API_URL was pointing to frontend instead of GCGC backend
+4. **JWT Secret Mismatch** - JWT_SECRET didn't match GCGC's NEXTAUTH_SECRET
 
 ## Railway Environment Variables
 
 Set these in your Railway dashboard:
 
-### Required Variables
+### Required Variables (NEW NAMES)
 ```bash
 DATABASE_URL=postgresql+asyncpg://user:pass@host:port/db
 DATABASE_URL_SYNC=postgresql://user:pass@host:port/db
-TMS_API_URL=https://gcgc-team-management-system-staging.up.railway.app
-TMS_API_KEY=v1hM2qTu7ckPz8evUzN3EEn0tNUyndttn/sRvkeEl7k=
-JWT_SECRET=krYggXL+KsnsKl0hvE7NqBcTlX2Pq6BwhPsnUUAI4FE=
-ALLOWED_ORIGINS=https://your-frontend-domain.com
-ENVIRONMENT=production
-DEBUG=false
+USER_MANAGEMENT_API_URL=https://gcgc-team-management-system-staging.up.railway.app
+USER_MANAGEMENT_API_KEY=goh9oNDRy0Hs6O6CjnpI6ZiUMOT3xXnlhm+oFQvMamw=
+JWT_SECRET=v1hM2qTu7ckPz8evUzN3EEn0tNUyndttn/sRvkeEl7k=
+ALLOWED_ORIGINS=https://tms-client-staging.up.railway.app
+ENVIRONMENT=staging
+DEBUG=true
 ```
+
+⚠️ **CRITICAL**:
+- `USER_MANAGEMENT_API_URL` must point to **GCGC backend** (not TMS-Client frontend!)
+- `JWT_SECRET` must match GCGC's `NEXTAUTH_SECRET` exactly
 
 ### Optional Variables
 ```bash
@@ -38,9 +43,21 @@ LOG_FORMAT=json
 ## Health Check Endpoints
 
 - **Basic health**: `GET /health` - Always returns 200 if server is running
-- **Readiness check**: `GET /health/ready` - Checks database, TMS, and Redis (if configured)
+- **Readiness check**: `GET /health/ready` - Checks database, GCGC User Management, and Redis (if configured)
 
 Railway should use `/health` for health checks.
+
+Expected `/health/ready` response:
+```json
+{
+  "status": "ready",
+  "checks": {
+    "database": true,
+    "redis": "not_configured",
+    "gcgc_user_management": true
+  }
+}
+```
 
 ## Deployment Commands
 

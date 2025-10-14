@@ -21,16 +21,17 @@ async def get_current_user(
 
     This function:
     1. Extracts the JWT token from the Authorization header
-    2. Validates the token with TMS
-    3. Fetches user data from TMS (with caching)
-    4. Returns the user information
+    2. Validates the token with GCGC Team Management System
+    3. Fetches user data from GCGC (with caching)
+    4. Syncs user data to local database
+    5. Returns the user information
 
     Args:
-        authorization: Authorization header containing Bearer token
+        authorization: Authorization header containing Bearer token (from GCGC NextAuth)
         db: Database session
 
     Returns:
-        Dictionary containing user information from TMS
+        Dictionary containing user information from GCGC
 
     Raises:
         HTTPException: 401 if token is missing or invalid

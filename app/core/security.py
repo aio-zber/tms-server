@@ -96,44 +96,36 @@ def decode_token(token: str) -> Dict[str, Any]:
 
 def validate_tms_token(token: str) -> Dict[str, Any]:
     """
-    Validate TMS JWT token.
+    Validate JWT token (DEPRECATED - DO NOT USE).
 
-    This function validates tokens issued by the TMS system.
-    In production, this should make an API call to TMS to validate the token.
+    IMPORTANT: This function is deprecated and should not be used for validating
+    GCGC NextAuth tokens. Token validation happens via GCGC's /api/v1/users/me
+    endpoint, not through local JWT decoding.
+
+    The JWT secret in this service may not match GCGC's NEXTAUTH_SECRET,
+    so local token decoding will fail. Always validate tokens by calling
+    GCGC's API endpoints.
 
     Args:
-        token: TMS JWT token
+        token: JWT token
 
     Returns:
-        Token payload with user information
+        Token payload (NOT RELIABLE - use tms_client.get_current_user_from_tms instead)
 
     Raises:
-        SecurityException: If token is invalid
+        SecurityException: Always raises - this function should not be used
 
-    Example:
+    Example (CORRECT):
         ```python
-        user_info = validate_tms_token(token)
-        tms_user_id = user_info.get("tms_user_id")
+        # Don't use this function! Use the TMS client instead:
+        from app.core.tms_client import tms_client
+        user_info = await tms_client.get_current_user_from_tms(token)
         ```
     """
-    try:
-        # Decode the token using TMS's JWT secret
-        payload = jwt.decode(
-            token,
-            settings.jwt_secret,
-            algorithms=[settings.jwt_algorithm]
-        )
-
-        # Validate required fields
-        if "tms_user_id" not in payload:
-            raise SecurityException("Invalid token: missing tms_user_id")
-
-        return payload
-
-    except jwt.ExpiredSignatureError:
-        raise SecurityException("TMS token has expired")
-    except jwt.InvalidTokenError:
-        raise SecurityException("Invalid TMS token")
+    raise SecurityException(
+        "Local JWT validation is not supported. "
+        "Use tms_client.get_current_user_from_tms() to validate tokens with GCGC."
+    )
 
 
 def extract_token_from_header(authorization: str) -> str:

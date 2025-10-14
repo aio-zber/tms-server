@@ -186,11 +186,13 @@ DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/tms_messaging
 DATABASE_URL_SYNC=postgresql://user:password@localhost:5432/tms_messaging
 REDIS_URL=redis://localhost:6379/0
 
-# TMS Integration
-TMS_API_URL=https://your-tms-domain.com/api
-TMS_API_KEY=your-tms-api-key-here
+# User Management Integration (GCGC Team Management System)
+USER_MANAGEMENT_API_URL=https://gcgc-team-management-system.example.com
+USER_MANAGEMENT_API_KEY=your-user-management-api-key-here
+USER_MANAGEMENT_API_TIMEOUT=30
 
 # Security
+# IMPORTANT: JWT_SECRET must match GCGC's NEXTAUTH_SECRET
 JWT_SECRET=your-super-secret-jwt-key-minimum-32-characters-long
 ALLOWED_ORIGINS=http://localhost:3000
 
@@ -209,36 +211,36 @@ DEBUG=true
 
 ---
 
-## 🔗 TMS Integration
+## 🔗 GCGC Team Management System Integration
 
-**Critical: This app relies on Team Management System (TMS) for user identity and authentication**
+**Critical: This app relies on GCGC Team Management System for user identity and authentication**
 
 ### Authentication & SSO
-- **SSO/Token Validation** - Validate TMS JWT/session tokens on every request
-- **Session Management** - Handle TMS session validation and expiry
-- **Token Refresh** - Refresh expired TMS tokens automatically
-- **Cross-Origin Authentication** - Handle authentication across TMS and TMA domains (CORS)
-- **Logout Handling** - Sync logout with TMS
+- **Token Validation** - Validate GCGC NextAuth JWT tokens on every request
+- **Session Management** - Handle GCGC session validation and expiry
+- **Token Refresh** - Refresh expired tokens automatically
+- **Cross-Origin Authentication** - Handle authentication across GCGC and messaging domains (CORS)
+- **Logout Handling** - Sync logout with GCGC
 
 ### User Data Integration
-- **TMS API Integration** - Fetch user data from TMS (username, email, position, avatar, role)
-- **User Data Caching** - Cache TMS user data in Redis (TTL: 5-15 minutes)
+- **GCGC API Integration** - Fetch user data from GCGC (username, email, position, avatar, role)
+- **User Data Caching** - Cache GCGC user data in Redis (TTL: 5-15 minutes)
 - **User Sync Service** - Periodic background sync of user data (every 10 minutes)
-- **Real-time Updates** - TMS webhooks for instant user data updates (preferred)
+- **Real-time Updates** - GCGC webhooks for instant user data updates (preferred)
 - **Batch User Fetch** - Fetch multiple users efficiently (single API call)
 
 ### Authorization & Permissions
-- **Role Mapping** - Map TMS roles to TMA permissions (admin, user, etc.)
+- **Role Mapping** - Map GCGC roles to messaging permissions (admin, user, etc.)
 - **Permission Validation** - Validate user permissions for actions
-- **Group Admin Rights** - Determine admin rights based on TMS roles
-- **Access Control** - Control feature access based on TMS permissions
+- **Group Admin Rights** - Determine admin rights based on GCGC roles
+- **Access Control** - Control feature access based on GCGC permissions
 
-### TMS Communication
-- **TMS API Client** - Secure HTTP client for TMS communication (`app/core/tms_client.py`)
-- **API Key Management** - Secure storage of TMS API credentials (environment variables)
-- **Rate Limit Handling** - Handle TMS API rate limits gracefully
-- **Error Handling** - Graceful handling of TMS API failures (fallback to cache)
-- **Health Checks** - Monitor TMS API availability (ping endpoint)
+### GCGC Communication
+- **User Management API Client** - Secure HTTP client for GCGC communication (`app/core/tms_client.py`)
+- **API Key Management** - Secure storage of GCGC API credentials (environment variables)
+- **Rate Limit Handling** - Handle GCGC API rate limits gracefully
+- **Error Handling** - Graceful handling of GCGC API failures (fallback to cache)
+- **Health Checks** - Monitor GCGC API availability (ping endpoint)
 
 ---
 
@@ -766,11 +768,12 @@ alembic history
 - Review WebSocket logs for errors
 - Test with WebSocket client tool
 
-### TMS integration issues
-- Verify TMS_API_URL is correct
-- Check TMS_API_KEY is valid
-- Test TMS API connectivity manually
-- Review TMS API logs
+### GCGC User Management integration issues
+- Verify USER_MANAGEMENT_API_URL points to GCGC backend (not TMS-Client!)
+- Check USER_MANAGEMENT_API_KEY is valid
+- Ensure JWT_SECRET matches GCGC's NEXTAUTH_SECRET
+- Test GCGC API connectivity manually: `curl $USER_MANAGEMENT_API_URL/health`
+- Review GCGC API logs
 - Check cache for stale data
 
 ---

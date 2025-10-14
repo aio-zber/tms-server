@@ -1,6 +1,7 @@
 """
-TMS API Client for integrating with Team Management System.
-Handles user authentication, user data fetching, and TMS communication.
+User Management API Client for integrating with GCGC Team Management System.
+Handles user authentication, user data fetching, and communication with the
+GCGC Team Management System for user identity and authorization.
 """
 from typing import Optional, Dict, Any, List
 import httpx
@@ -14,16 +15,24 @@ class TMSAPIException(Exception):
 
 
 class TMSClient:
-    """Client for communicating with TMS API."""
+    """
+    Client for communicating with GCGC Team Management System API.
+
+    This client handles all interactions with the User Management System,
+    including user authentication, profile fetching, and user search.
+
+    Note: "TMS" in the class name refers to the Team Management System (GCGC),
+    not to be confused with the Team Messaging System.
+    """
 
     def __init__(self):
-        """Initialize TMS client."""
-        self.base_url = settings.tms_api_url.rstrip("/")
-        self.api_key = settings.tms_api_key
-        self.timeout = settings.tms_api_timeout
+        """Initialize User Management API client."""
+        self.base_url = settings.user_management_api_url.rstrip("/")
+        self.api_key = settings.user_management_api_key
+        self.timeout = settings.user_management_api_timeout
 
     def _get_headers(self) -> Dict[str, str]:
-        """Get default headers for TMS API requests."""
+        """Get default headers for User Management API requests."""
         return {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -31,13 +40,13 @@ class TMSClient:
 
     async def validate_token(self, token: str) -> Dict[str, Any]:
         """
-        Validate user token with TMS.
+        Validate user token with GCGC Team Management System.
 
         Args:
             token: JWT token to validate
 
         Returns:
-            User information from TMS
+            User information from GCGC
 
         Raises:
             TMSAPIException: If validation fails
@@ -64,15 +73,15 @@ class TMSClient:
 
     async def get_current_user_from_tms(self, token: str, use_cache: bool = True) -> Dict[str, Any]:
         """
-        Get current authenticated user from TMS /api/v1/users/me.
+        Get current authenticated user from GCGC /api/v1/users/me.
         Uses the user's token to fetch their full profile.
 
         Args:
-            token: User's JWT token
+            token: User's JWT token (issued by GCGC NextAuth)
             use_cache: Whether to use cache (default: True)
 
         Returns:
-            Current user data dictionary (TMSCurrentUserSchema)
+            Current user data dictionary from GCGC
 
         Raises:
             TMSAPIException: If token invalid or API error
@@ -113,15 +122,15 @@ class TMSClient:
 
     async def get_user(self, tms_user_id: str, use_cache: bool = True) -> Dict[str, Any]:
         """
-        Get user data from TMS /api/v1/users/{id}.
-        Returns public user profile (TMSPublicUserSchema).
+        Get user data from GCGC /api/v1/users/{id}.
+        Returns public user profile.
 
         Args:
-            tms_user_id: TMS user ID
+            tms_user_id: GCGC user ID
             use_cache: Whether to use cache (default: True)
 
         Returns:
-            User data dictionary
+            User data dictionary from GCGC
 
         Raises:
             TMSAPIException: If user not found or API error
@@ -244,14 +253,14 @@ class TMSClient:
         limit: int = 20
     ) -> Dict[str, Any]:
         """
-        Search users from TMS /api/v1/users/search.
+        Search users from GCGC /api/v1/users/search.
 
         Args:
             query: Search query string
             limit: Maximum number of results (default: 20, max: 100)
 
         Returns:
-            UserSearchResponse with list of users
+            Search results with list of users from GCGC
 
         Raises:
             TMSAPIException: If API error
@@ -298,10 +307,10 @@ class TMSClient:
 
     async def health_check(self) -> bool:
         """
-        Check if TMS API is available.
+        Check if GCGC User Management API is available.
 
         Returns:
-            True if TMS is healthy, False otherwise
+            True if GCGC is healthy, False otherwise
         """
         async with httpx.AsyncClient(timeout=5) as client:
             try:
@@ -314,5 +323,6 @@ class TMSClient:
                 return False
 
 
-# Global TMS client instance
+# Global User Management client instance
+# Note: Named "tms_client" for backward compatibility
 tms_client = TMSClient()
