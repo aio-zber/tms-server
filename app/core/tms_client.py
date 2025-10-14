@@ -62,9 +62,59 @@ class TMSClient:
             except httpx.RequestError as e:
                 raise TMSAPIException(f"TMS API request failed: {str(e)}")
 
+    async def get_current_user_from_tms(self, token: str, use_cache: bool = True) -> Dict[str, Any]:
+        """
+        Get current authenticated user from TMS /api/v1/users/me.
+        Uses the user's token to fetch their full profile.
+
+        Args:
+            token: User's JWT token
+            use_cache: Whether to use cache (default: True)
+
+        Returns:
+            Current user data dictionary (TMSCurrentUserSchema)
+
+        Raises:
+            TMSAPIException: If token invalid or API error
+
+        Example:
+            ```python
+            user = await tms_client.get_current_user_from_tms(token)
+            user_id = user["id"]
+            email = user["email"]
+            ```
+        """
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            try:
+                # Use user's token, not API key
+                headers = {
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                }
+                response = await client.get(
+                    f"{self.base_url}/api/v1/users/me",
+                    headers=headers
+                )
+                response.raise_for_status()
+                user_data = response.json()
+
+                # Cache the result using TMS user ID
+                if use_cache and "id" in user_data:
+                    await cache_user_data(user_data["id"], user_data)
+
+                return user_data
+
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 401:
+                    raise TMSAPIException("Invalid or expired token")
+                raise TMSAPIException(f"Failed to fetch current user: {e.response.text}")
+            except httpx.RequestError as e:
+                raise TMSAPIException(f"TMS API unavailable: {str(e)}")
+
     async def get_user(self, tms_user_id: str, use_cache: bool = True) -> Dict[str, Any]:
         """
-        Get user data from TMS.
+        Get user data from TMS /api/v1/users/{id}.
+        Returns public user profile (TMSPublicUserSchema).
 
         Args:
             tms_user_id: TMS user ID
@@ -93,7 +143,7 @@ class TMSClient:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
                 response = await client.get(
-                    f"{self.base_url}/users/{tms_user_id}",
+                    f"{self.base_url}/api/v1/users/{tms_user_id}",
                     headers=self._get_headers()
                 )
                 response.raise_for_status()
@@ -185,6 +235,64 @@ class TMSClient:
                 return response.json()
             except httpx.HTTPStatusError as e:
                 raise TMSAPIException(f"Token refresh failed: {e.response.text}")
+            except httpx.RequestError as e:
+                raise TMSAPIException(f"TMS API request failed: {str(e)}")
+
+    async def search_users(
+        self,
+        query: str,
+        limit: int = 20
+    ) -> Dict[str, Any]:
+        """
+        Search users from TMS /api/v1/users/search.
+
+        Args:
+            query: Search query string
+            limit: Maximum number of results (default: 20, max: 100)
+
+        Returns:
+            UserSearchResponse with list of users
+
+        Raises:
+            TMSAPIException: If API error
+
+        Example:
+            ```python
+            results = await tms_client.search_users("john", limit=10)
+            users = results["users"]
+            for user in users:
+                print(user["name"], user["email"])
+            ```
+        """
+        if not query or len(query.strip()) == 0:
+            return {"users": []}
+
+        # Enforce limits
+        if limit > 100:
+            limit = 100
+        elif limit < 1:
+            limit = 1
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            try:
+                response = await client.get(
+                    f"{self.base_url}/api/v1/users/search",
+                    headers=self._get_headers(),
+                    params={"q": query.strip(), "limit": limit}
+                )
+                response.raise_for_status()
+                search_results = response.json()
+
+                # Cache each user from search results
+                if "users" in search_results:
+                    for user in search_results["users"]:
+                        if "id" in user:
+                            await cache_user_data(user["id"], user)
+
+                return search_results
+
+            except httpx.HTTPStatusError as e:
+                raise TMSAPIException(f"Failed to search users: {e.response.text}")
             except httpx.RequestError as e:
                 raise TMSAPIException(f"TMS API request failed: {str(e)}")
 

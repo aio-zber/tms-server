@@ -7,7 +7,7 @@ All authentication and user identity management is handled by TMS.
 from datetime import datetime
 from typing import TYPE_CHECKING, List
 
-from sqlalchemy import Index, String, JSON, func
+from sqlalchemy import Index, String, JSON, Boolean, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, UUIDMixin
@@ -39,6 +39,113 @@ class User(Base, UUIDMixin):
         doc="Unique user ID from Team Management System"
     )
 
+    # Basic user information (synced from TMS)
+    email: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        index=True,
+        doc="User email address from TMS"
+    )
+
+    username: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        doc="Username from TMS"
+    )
+
+    first_name: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        doc="First name from TMS"
+    )
+
+    last_name: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        doc="Last name from TMS"
+    )
+
+    middle_name: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        doc="Middle name from TMS"
+    )
+
+    image: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+        doc="Profile image URL from TMS"
+    )
+
+    # Role and organizational information
+    role: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+        index=True,
+        doc="User role from TMS (ADMIN, LEADER, MEMBER)"
+    )
+
+    position_title: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        doc="Position title from TMS"
+    )
+
+    division: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        index=True,
+        doc="Division from TMS"
+    )
+
+    department: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        index=True,
+        doc="Department from TMS"
+    )
+
+    section: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        doc="Section from TMS"
+    )
+
+    custom_team: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        doc="Custom team from TMS"
+    )
+
+    # Hierarchy and reporting
+    hierarchy_level: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+        doc="Hierarchy level from TMS"
+    )
+
+    reports_to_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        doc="ID of reporting manager from TMS"
+    )
+
+    # Status flags
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+        index=True,
+        doc="Whether user is active in TMS"
+    )
+
+    is_leader: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        doc="Whether user is a leader in TMS"
+    )
+
     # Local user settings (stored as JSONB)
     settings_json: Mapped[dict] = mapped_column(
         JSON,
@@ -53,11 +160,18 @@ class User(Base, UUIDMixin):
         doc="Last time user data was synced from TMS"
     )
 
-    # Timestamp
+    # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         server_default=func.now(),
         nullable=False,
         doc="When the user was first created locally"
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+        doc="When the user was last updated"
     )
 
     # Relationships

@@ -11,6 +11,7 @@ psycopg2-binary==2.9.10  # Required for Alembic migrations (sync driver)
 # Data Validation
 pydantic==2.10.3
 pydantic-settings==2.6.1
+email-validator==2.1.0  # Required for EmailStr validation
 
 # Authentication & Security
 pyjwt==2.10.1
