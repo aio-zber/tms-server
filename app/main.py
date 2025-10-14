@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from app.config import settings
 from app.core.cache import cache
 from app.core.database import engine
-from app.core.websocket import connection_manager
+# from app.core.websocket import connection_manager
 
 
 @asynccontextmanager
@@ -123,7 +123,7 @@ async def root():
 
 
 # Include API routers
-from app.api.v1 import messages, conversations, users
+from app.api.v1 import messages, conversations, users, auth
 
 app.include_router(
     messages.router,
@@ -143,9 +143,11 @@ app.include_router(
     tags=["Users"]
 )
 
-# TODO: Include authentication router when created
-# from app.api.v1 import auth
-# app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
+app.include_router(
+    auth.router,
+    prefix="/api/v1/auth",
+    tags=["Authentication"]
+)
 
 # Mount WebSocket
-connection_manager.mount_to_app(app)
+# connection_manager.mount_to_app(app)

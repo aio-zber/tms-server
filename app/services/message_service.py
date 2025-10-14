@@ -18,7 +18,7 @@ from app.repositories.message_repo import (
 )
 from app.core.tms_client import tms_client, TMSAPIException
 from app.core.cache import cache
-from app.core.websocket import connection_manager
+# from app.core.websocket import connection_manager
 from sqlalchemy import select
 
 
@@ -36,7 +36,7 @@ class MessageService:
         self.message_repo = MessageRepository(db)
         self.status_repo = MessageStatusRepository(db)
         self.reaction_repo = MessageReactionRepository(db)
-        self.ws_manager = connection_manager
+        # self.ws_manager = connection_manager
 
     async def _verify_conversation_membership(
         self,
