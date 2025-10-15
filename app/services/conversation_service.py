@@ -187,15 +187,20 @@ class ConversationService:
                     creator_id
                 )
 
-        # Validate all member IDs exist in TMS
-        try:
-            all_member_ids = [creator_id] + [uid for uid in member_ids if uid != creator_id]
-            await tms_client.get_users(all_member_ids)
-        except TMSAPIException as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid member IDs: {str(e)}"
-            )
+        # Validate all member IDs exist in local database
+        from app.models.user import User
+        from sqlalchemy import select
+
+        all_member_ids = [creator_id] + [uid for uid in member_ids if uid != creator_id]
+
+        for uid in all_member_ids:
+            result = await self.db.execute(select(User).where(User.id == uid))
+            user = result.scalar_one_or_none()
+            if not user:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"User {uid} not found"
+                )
 
         # Create conversation with members
         conversation = await self.conversation_repo.create_with_members(
@@ -378,14 +383,18 @@ class ConversationService:
                 detail="Only admins can add members"
             )
 
-        # Validate member IDs exist in TMS
-        try:
-            await tms_client.get_users(member_ids)
-        except TMSAPIException as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid member IDs: {str(e)}"
-            )
+        # Validate member IDs exist in local database
+        from app.models.user import User
+        from sqlalchemy import select
+
+        for uid in member_ids:
+            result = await self.db.execute(select(User).where(User.id == uid))
+            user = result.scalar_one_or_none()
+            if not user:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"User {uid} not found"
+                )
 
         # Add members
         added_count = await self.member_repo.add_members(conversation_id, member_ids)
