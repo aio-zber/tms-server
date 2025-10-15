@@ -6,9 +6,15 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 from app.models.message import MessageType, MessageStatusType
+
+
+def to_camel(string: str) -> str:
+    """Convert snake_case to camelCase."""
+    components = string.split('_')
+    return components[0] + ''.join(x.title() for x in components[1:])
 
 
 # ============================================================================
@@ -136,78 +142,78 @@ class MessageReactionResponse(BaseModel):
     """Schema for message reaction response."""
 
     id: UUID
-    message_id: UUID
-    user_id: UUID
+    message_id: UUID = Field(serialization_alias="messageId")
+    user_id: UUID = Field(serialization_alias="userId")
     emoji: str
-    created_at: datetime
+    created_at: datetime = Field(serialization_alias="createdAt")
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class MessageStatusResponse(BaseModel):
     """Schema for message status response."""
 
-    message_id: UUID
-    user_id: UUID
+    message_id: UUID = Field(serialization_alias="messageId")
+    user_id: UUID = Field(serialization_alias="userId")
     status: MessageStatusType
     timestamp: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class UserBasicInfo(BaseModel):
     """Basic user information for message responses."""
 
     id: UUID
-    tms_user_id: str
+    tms_user_id: str = Field(serialization_alias="tmsUserId")
     # Additional user fields will be fetched from TMS and merged
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class MessageResponse(BaseModel):
     """Schema for message response with full details."""
 
     id: UUID
-    conversation_id: UUID
-    sender_id: UUID
+    conversation_id: UUID = Field(serialization_alias="conversationId")
+    sender_id: UUID = Field(serialization_alias="senderId")
     content: Optional[str]
     type: MessageType
-    metadata_json: Dict[str, Any]
-    reply_to_id: Optional[UUID]
-    is_edited: bool
-    created_at: datetime
-    updated_at: Optional[datetime]
-    deleted_at: Optional[datetime]
+    metadata_json: Dict[str, Any] = Field(default_factory=dict, serialization_alias="metadataJson")
+    reply_to_id: Optional[UUID] = Field(None, serialization_alias="replyToId")
+    is_edited: bool = Field(serialization_alias="isEdited")
+    created_at: datetime = Field(serialization_alias="createdAt")
+    updated_at: Optional[datetime] = Field(None, serialization_alias="updatedAt")
+    deleted_at: Optional[datetime] = Field(None, serialization_alias="deletedAt")
 
     # Related data (optional, loaded based on request)
     sender: Optional[Dict[str, Any]] = None
     reactions: List[MessageReactionResponse] = Field(default_factory=list)
     statuses: List[MessageStatusResponse] = Field(default_factory=list)
-    reply_to: Optional["MessageResponse"] = None
+    reply_to: Optional["MessageResponse"] = Field(None, serialization_alias="replyTo")
 
-    class Config:
-        from_attributes = True
-        json_schema_extra = {
+    model_config = ConfigDict(
+        from_attributes=True,
+        populate_by_name=True,
+        ser_json_by_alias=True,  # Serialize using aliases (camelCase for frontend)
+        json_schema_extra={
             "example": {
                 "id": "123e4567-e89b-12d3-a456-426614174000",
-                "conversation_id": "123e4567-e89b-12d3-a456-426614174001",
-                "sender_id": "123e4567-e89b-12d3-a456-426614174002",
+                "conversationId": "123e4567-e89b-12d3-a456-426614174001",
+                "senderId": "123e4567-e89b-12d3-a456-426614174002",
                 "content": "Hello, how are you?",
                 "type": "text",
-                "metadata_json": {},
-                "reply_to_id": None,
-                "is_edited": False,
-                "created_at": "2025-10-10T10:00:00Z",
-                "updated_at": None,
-                "deleted_at": None,
+                "metadataJson": {},
+                "replyToId": None,
+                "isEdited": False,
+                "createdAt": "2025-10-10T10:00:00Z",
+                "updatedAt": None,
+                "deletedAt": None,
                 "reactions": [],
                 "statuses": []
             }
         }
+    )
 
 
 class MessageListResponse(BaseModel):
