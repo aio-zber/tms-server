@@ -108,27 +108,35 @@ class UserService:
 
         return UserResponse(**data)
 
-    async def get_current_user(self, token: str) -> UserResponse:
+    async def get_current_user(
+        self,
+        token: Optional[str] = None,
+        cookies: Optional[Dict[str, str]] = None
+    ) -> UserResponse:
         """
         Get current authenticated user from TMS and sync locally.
 
         This is the main authentication flow:
-        1. Fetch user from TMS /users/me using token
+        1. Fetch user from TMS /users/me using token or cookies
         2. Upsert to local database
         3. Return enriched user response
 
         Args:
-            token: User's JWT token
+            token: User's JWT token or session token (optional if cookies provided)
+            cookies: Session cookies for NextAuth-based authentication
 
         Returns:
             UserResponse with full user data
 
         Raises:
-            TMSAPIException: If token invalid or TMS unavailable
+            TMSAPIException: If authentication invalid or TMS unavailable
         """
         try:
-            # Fetch current user from TMS
-            tms_user_data = await tms_client.get_current_user_from_tms(token)
+            # Fetch current user from TMS (supports both token and cookies)
+            tms_user_data = await tms_client.get_current_user_from_tms(
+                token=token,
+                cookies=cookies
+            )
             tms_user_id = tms_user_data["id"]
 
             # Upsert to local database

@@ -71,14 +71,20 @@ class TMSClient:
             except httpx.RequestError as e:
                 raise TMSAPIException(f"TMS API request failed: {str(e)}")
 
-    async def get_current_user_from_tms(self, token: str, use_cache: bool = True) -> Dict[str, Any]:
+    async def get_current_user_from_tms(
+        self,
+        token: Optional[str] = None,
+        use_cache: bool = True,
+        cookies: Optional[Dict[str, str]] = None
+    ) -> Dict[str, Any]:
         """
         Get current authenticated user from GCGC /api/v1/users/me.
-        Uses the user's token to fetch their full profile.
+        Supports both Bearer token and session cookie authentication.
 
         Args:
-            token: User's JWT token (issued by GCGC NextAuth)
+            token: User's JWT token or session token (optional if cookies provided)
             use_cache: Whether to use cache (default: True)
+            cookies: Session cookies to forward to TMS (for NextAuth session-based auth)
 
         Returns:
             Current user data dictionary from GCGC
@@ -88,22 +94,43 @@ class TMSClient:
 
         Example:
             ```python
-            user = await tms_client.get_current_user_from_tms(token)
-            user_id = user["id"]
-            email = user["email"]
+            # With Bearer token:
+            user = await tms_client.get_current_user_from_tms(token="jwt_token")
+
+            # With session cookies:
+            user = await tms_client.get_current_user_from_tms(cookies=request.cookies)
             ```
         """
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=False) as client:
             try:
-                # Use user's token, not API key
-                headers = {
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/json",
-                }
-                response = await client.get(
-                    f"{self.base_url}/api/v1/users/me",
-                    headers=headers
-                )
+                headers = {"Content-Type": "application/json"}
+
+                # Priority 1: Use session cookies if provided (for NextAuth)
+                # Priority 2: Use token as Bearer auth (for JWT tokens)
+                if cookies:
+                    # Session-based auth: Forward cookies to TMS
+                    response = await client.get(
+                        f"{self.base_url}/api/v1/users/me",
+                        headers=headers,
+                        cookies=cookies
+                    )
+                elif token:
+                    # Token-based auth: Use Bearer token
+                    headers["Authorization"] = f"Bearer {token}"
+                    response = await client.get(
+                        f"{self.base_url}/api/v1/users/me",
+                        headers=headers
+                    )
+                else:
+                    raise TMSAPIException("Either token or cookies must be provided")
+
+                # Check for redirects (common when session is invalid)
+                if response.status_code in [301, 302, 303, 307, 308]:
+                    location = response.headers.get("location", "")
+                    if "signin" in location.lower() or "login" in location.lower():
+                        raise TMSAPIException("Session expired or invalid - redirected to login")
+                    raise TMSAPIException(f"Unexpected redirect to: {location}")
+
                 response.raise_for_status()
                 user_data = response.json()
 
@@ -115,8 +142,12 @@ class TMSClient:
 
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 401:
-                    raise TMSAPIException("Invalid or expired token")
-                raise TMSAPIException(f"Failed to fetch current user: {e.response.text}")
+                    raise TMSAPIException("Invalid or expired authentication")
+                # Handle HTML redirect responses
+                error_text = e.response.text
+                if "/auth/signin" in error_text or "/signin" in error_text:
+                    raise TMSAPIException("Session expired - please login again")
+                raise TMSAPIException(f"Failed to fetch current user: {error_text[:200]}")
             except httpx.RequestError as e:
                 raise TMSAPIException(f"TMS API unavailable: {str(e)}")
 
