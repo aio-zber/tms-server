@@ -209,6 +209,7 @@ class TMSClient:
     async def get_users(self, tms_user_ids: List[str]) -> List[Dict[str, Any]]:
         """
         Get multiple users from TMS in a single request (batch fetch).
+        OPTIMIZED: Check cache first, only fetch missing users from API.
 
         Args:
             tms_user_ids: List of TMS user IDs
@@ -229,26 +230,52 @@ class TMSClient:
         if not tms_user_ids:
             return []
 
+        # Check cache first for all users
+        cached_users = []
+        uncached_ids = []
+
+        for user_id in tms_user_ids:
+            cached = await get_cached_user_data(user_id)
+            if cached:
+                cached_users.append(cached)
+            else:
+                uncached_ids.append(user_id)
+
+        # If all users are cached, return early
+        if not uncached_ids:
+            return cached_users
+
+        # Fetch only uncached users from API
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
                 response = await client.post(
                     f"{self.base_url}/users/batch",
                     headers=self._get_headers(),
-                    json={"user_ids": tms_user_ids}
+                    json={"user_ids": uncached_ids}
                 )
                 response.raise_for_status()
-                users = response.json()
+                fetched_users = response.json()
 
-                # Cache each user
-                for user in users:
-                    if "tms_user_id" in user:
-                        await cache_user_data(user["tms_user_id"], user)
+                # Cache each newly fetched user (handle both "id" and "tms_user_id" fields)
+                for user in fetched_users:
+                    user_id_key = user.get("id") or user.get("tms_user_id")
+                    if user_id_key:
+                        await cache_user_data(user_id_key, user)
 
-                return users
+                # Combine cached + fetched users
+                return cached_users + fetched_users
 
             except httpx.HTTPStatusError as e:
+                # If batch fetch fails, return whatever we have from cache
+                if cached_users:
+                    print(f"Warning: Batch fetch failed, returning {len(cached_users)} cached users")
+                    return cached_users
                 raise TMSAPIException(f"Failed to fetch users: {e.response.text}")
             except httpx.RequestError as e:
+                # If TMS is down, return cached users if available
+                if cached_users:
+                    print(f"Warning: TMS unavailable, returning {len(cached_users)} cached users")
+                    return cached_users
                 raise TMSAPIException(f"TMS API request failed: {str(e)}")
 
     async def refresh_token(self, refresh_token: str) -> Dict[str, str]:
