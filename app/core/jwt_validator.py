@@ -58,16 +58,19 @@ def decode_nextauth_jwt(token: str) -> Dict[str, Any]:
         )
 
         # Extract user information from JWT claims
-        # "sub" is the standard JWT claim for user ID
-        user_id = payload.get("sub")
+        # Try "sub" first (standard JWT claim), then "id" (NextAuth custom claim)
+        user_id = payload.get("sub") or payload.get("id")
         if not user_id:
-            raise JWTValidationError("Token missing 'sub' (user ID) claim")
+            raise JWTValidationError("Token missing user ID claim ('sub' or 'id')")
 
         return {
             "user_id": user_id,
             "email": payload.get("email"),
             "name": payload.get("name"),
             "picture": payload.get("picture"),  # Profile image
+            "image": payload.get("image"),      # Alternative image field
+            "role": payload.get("role"),
+            "hierarchyLevel": payload.get("hierarchyLevel"),
             "exp": payload.get("exp"),
             "iat": payload.get("iat"),
             # Include all other claims for flexibility
