@@ -132,30 +132,27 @@ def decode_nextauth_token(token: str) -> Dict[str, Any]:
     """
     try:
         # Decode using NEXTAUTH_SECRET (same secret used by GCGC TMS)
+        # The token is generated using standard jsonwebtoken library with HS256
+        # Payload structure: { id, email, name, role, hierarchyLevel, image, iat, exp }
         payload = jwt.decode(
             token,
             settings.nextauth_secret,
-            algorithms=["HS256"]  # NextAuth uses HS256
+            algorithms=["HS256"],
+            options={
+                "verify_signature": True,
+                "verify_exp": True,
+                "require": ["id", "email", "exp", "iat"]
+            }
         )
 
-        # NextAuth wraps the actual data in a "token" field
-        # The payload structure is: { token: { id, email, role, ... }, iat, exp }
-        if "token" in payload and isinstance(payload["token"], dict):
-            # Extract the nested token data and merge with top-level fields
-            user_data = payload["token"].copy()
-            user_data["iat"] = payload.get("iat")
-            user_data["exp"] = payload.get("exp")
-            return user_data
-
-        # If not nested, return as-is
         return payload
 
     except jwt.ExpiredSignatureError:
-        raise SecurityException("NextAuth token has expired")
+        raise SecurityException("Token has expired")
     except jwt.InvalidTokenError as e:
-        raise SecurityException(f"Invalid NextAuth token: {str(e)}")
+        raise SecurityException(f"Invalid token: {str(e)}")
     except Exception as e:
-        raise SecurityException(f"Failed to decode NextAuth token: {str(e)}")
+        raise SecurityException(f"Failed to decode token: {str(e)}")
 
 
 def extract_token_from_header(authorization: str) -> str:
