@@ -130,7 +130,7 @@ class ConversationService:
                 "content": last_message.content,
                 "type": last_message.type,
                 "sender_id": last_message.sender_id,
-                "created_at": last_message.created_at
+                "timestamp": last_message.created_at  # Frontend expects "timestamp"
             }
 
         return conversation_dict
