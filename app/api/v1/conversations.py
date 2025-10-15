@@ -62,15 +62,53 @@ async def create_conversation(
     - **type**: Conversation type ('dm' or 'group')
     - **name**: Conversation name (required for groups)
     - **avatar_url**: Optional avatar URL
-    - **member_ids**: List of user IDs to add as members
+    - **member_ids**: List of TMS user IDs to add as members
     """
+    from app.models.user import User
+    from app.repositories.user_repo import UserRepository
+    from app.core.tms_client import tms_client
+    from sqlalchemy import select
+    from uuid import UUID
+
     service = ConversationService(db)
     user = await get_current_user_from_db(current_user, db)
+    user_repo = UserRepository(db)
 
+    # Convert TMS user IDs to local database UUIDs
+    local_member_ids: list[UUID] = []
+
+    for tms_user_id in conversation_data.member_ids:
+        # Check if user exists locally
+        result = await db.execute(
+            select(User).where(User.tms_user_id == tms_user_id)
+        )
+        local_user = result.scalar_one_or_none()
+
+        if not local_user:
+            # Fetch user from TMS and sync to local database
+            try:
+                tms_user_data = await tms_client.get_user_by_id_with_api_key(
+                    user_id=tms_user_id,
+                    use_cache=True
+                )
+
+                # Sync user to local database
+                local_user = await user_repo.upsert_from_tms(tms_user_id, tms_user_data)
+                await db.commit()
+
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Failed to fetch user {tms_user_id} from Team Management System: {str(e)}"
+                )
+
+        local_member_ids.append(local_user.id)
+
+    # Create conversation with local UUIDs
     conversation = await service.create_conversation(
         creator_id=user.id,
         type=conversation_data.type,
-        member_ids=conversation_data.member_ids,
+        member_ids=local_member_ids,
         name=conversation_data.name,
         avatar_url=conversation_data.avatar_url
     )

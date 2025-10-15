@@ -21,7 +21,7 @@ class ConversationCreate(BaseModel):
     type: ConversationType = Field(..., description="Conversation type: 'dm' or 'group'")
     name: Optional[str] = Field(None, min_length=1, max_length=255, description="Group name (required for groups)")
     avatar_url: Optional[str] = Field(None, max_length=500, description="Group avatar URL")
-    member_ids: List[UUID] = Field(..., min_items=1, max_items=100, description="List of user IDs to add as members")
+    member_ids: List[str] = Field(..., min_items=1, max_items=100, description="List of TMS user IDs to add as members")
 
     @field_validator("name")
     @classmethod
@@ -39,7 +39,7 @@ class ConversationCreate(BaseModel):
 
     @field_validator("member_ids")
     @classmethod
-    def validate_member_ids(cls, v: List[UUID], info) -> List[UUID]:
+    def validate_member_ids(cls, v: List[str], info) -> List[str]:
         """Validate member count based on conversation type."""
         conversation_type = info.data.get("type")
 
