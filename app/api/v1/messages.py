@@ -328,14 +328,17 @@ async def get_conversation_messages(
         cursor=cursor
     )
 
-    return {
-        "data": messages,
-        "pagination": {
+    # Convert enriched dict messages to Pydantic models for proper serialization
+    message_responses = [MessageResponse(**msg) for msg in messages]
+
+    return MessageListResponse(
+        data=message_responses,
+        pagination={
             "next_cursor": str(next_cursor) if next_cursor else None,
             "has_more": has_more,
             "limit": limit
         }
-    }
+    )
 
 
 @router.post(
