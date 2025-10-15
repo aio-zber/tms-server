@@ -18,7 +18,7 @@ from app.repositories.message_repo import (
 )
 from app.core.tms_client import tms_client, TMSAPIException
 from app.core.cache import cache
-# from app.core.websocket import connection_manager
+from app.core.websocket import connection_manager
 from sqlalchemy import select
 
 
@@ -36,7 +36,7 @@ class MessageService:
         self.message_repo = MessageRepository(db)
         self.status_repo = MessageStatusRepository(db)
         self.reaction_repo = MessageReactionRepository(db)
-        # self.ws_manager = connection_manager
+        self.ws_manager = connection_manager
 
     async def _verify_conversation_membership(
         self,
@@ -268,11 +268,10 @@ class MessageService:
         enriched_message = await self._enrich_message_with_user_data(message)
 
         # Broadcast new message via WebSocket
-        # TODO: Implement WebSocket broadcasting
-        # await self.ws_manager.broadcast_new_message(
-        #     conversation_id,
-        #     enriched_message
-        # )
+        await self.ws_manager.broadcast_new_message(
+            conversation_id,
+            enriched_message
+        )
 
         return enriched_message
 
@@ -410,11 +409,10 @@ class MessageService:
         enriched_message = await self._enrich_message_with_user_data(updated_message)
 
         # Broadcast message edit via WebSocket
-        # TODO: Implement WebSocket broadcasting
-        # await self.ws_manager.broadcast_message_edited(
-        #     message.conversation_id,
-        #     enriched_message
-        # )
+        await self.ws_manager.broadcast_message_edited(
+            message.conversation_id,
+            enriched_message
+        )
 
         return enriched_message
 
@@ -461,11 +459,10 @@ class MessageService:
         await self.db.commit()
 
         # Broadcast message deletion via WebSocket
-        # TODO: Implement WebSocket broadcasting
-        # await self.ws_manager.broadcast_message_deleted(
-        #     message.conversation_id,
-        #     message_id
-        # )
+        await self.ws_manager.broadcast_message_deleted(
+            message.conversation_id,
+            message_id
+        )
 
         return {
             "success": True,
@@ -530,12 +527,11 @@ class MessageService:
         }
 
         # Broadcast reaction added via WebSocket
-        # TODO: Implement WebSocket broadcasting
-        # await self.ws_manager.broadcast_reaction_added(
-        #     message.conversation_id,
-        #     message_id,
-        #     reaction_data
-        # )
+        await self.ws_manager.broadcast_reaction_added(
+            message.conversation_id,
+            message_id,
+            reaction_data
+        )
 
         return reaction_data
 
@@ -578,13 +574,12 @@ class MessageService:
         await self.db.commit()
 
         # Broadcast reaction removed via WebSocket
-        # TODO: Implement WebSocket broadcasting
-        # await self.ws_manager.broadcast_reaction_removed(
-        #     message.conversation_id,
-        #     message_id,
-        #     user_id,
-        #     emoji
-        # )
+        await self.ws_manager.broadcast_reaction_removed(
+            message.conversation_id,
+            message_id,
+            user_id,
+            emoji
+        )
 
         return {
             "success": True,
@@ -623,14 +618,13 @@ class MessageService:
         await self.db.commit()
 
         # Broadcast message status updates via WebSocket
-        # TODO: Implement WebSocket broadcasting
-        # for message_id in message_ids:
-        #     await self.ws_manager.broadcast_message_status(
-        #         conversation_id,
-        #         message_id,
-        #         user_id,
-        #         MessageStatusType.READ.value
-        #     )
+        for message_id in message_ids:
+            await self.ws_manager.broadcast_message_status(
+                conversation_id,
+                message_id,
+                user_id,
+                MessageStatusType.READ.value
+            )
 
         return {
             "success": True,
