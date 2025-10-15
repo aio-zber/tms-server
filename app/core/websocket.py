@@ -68,11 +68,11 @@ class ConnectionManager:
 
             try:
                 # Validate token and get user
-                from app.core.security import validate_tms_token
+                from app.core.security import decode_nextauth_token
                 from app.core.tms_client import tms_client
 
-                token_payload = validate_tms_token(token)
-                tms_user_id = token_payload.get('tms_user_id')
+                token_payload = decode_nextauth_token(token)
+                tms_user_id = token_payload.get('id')  # NextAuth token contains 'id' as TMS user ID
 
                 if not tms_user_id:
                     logger.warning(f"Connection rejected - invalid token: {sid}")

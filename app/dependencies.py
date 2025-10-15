@@ -7,7 +7,7 @@ from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.security import extract_token_from_header, validate_tms_token, SecurityException
+from app.core.security import extract_token_from_header, SecurityException
 from app.core.tms_client import tms_client, TMSAPIException
 from app.services.user_service import UserService
 
