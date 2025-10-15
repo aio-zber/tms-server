@@ -318,6 +318,7 @@ class MessageService:
     ) -> Tuple[List[Dict[str, Any]], Optional[UUID], bool]:
         """
         Get messages for a conversation with pagination.
+        OPTIMIZED: Uses batch fetching to avoid N+1 problem.
 
         Args:
             conversation_id: Conversation UUID
@@ -345,12 +346,101 @@ class MessageService:
             cursor
         )
 
-        # Enrich messages with TMS user data
+        if not messages:
+            return [], next_cursor, has_more
+
+        # OPTIMIZATION: Batch fetch all unique sender IDs in ONE API call
+        # This fixes the N+1 query problem (50 messages = 1 API call instead of 50)
+        sender_ids = list(set(
+            msg.sender.tms_user_id
+            for msg in messages
+            if msg.sender and msg.sender.tms_user_id
+        ))
+
+        # Fetch all users at once
+        users_map = {}
+        if sender_ids:
+            try:
+                users = await tms_client.get_users(sender_ids)
+                # Build lookup map (handle both "id" and "tms_user_id" fields)
+                for user in users:
+                    user_id_key = user.get("id") or user.get("tms_user_id")
+                    if user_id_key:
+                        users_map[user_id_key] = user
+            except TMSAPIException as e:
+                # Log error but continue - we'll use cached data or fallback
+                print(f"Warning: Batch user fetch failed: {e}")
+
+        # Enrich messages with pre-fetched user data
         enriched_messages = []
         for message in messages:
-            enriched_messages.append(
-                await self._enrich_message_with_user_data(message)
-            )
+            message_dict = {
+                "id": message.id,
+                "conversation_id": message.conversation_id,
+                "sender_id": message.sender_id,
+                "content": message.content,
+                "type": message.type,
+                "metadata_json": message.metadata_json,
+                "reply_to_id": message.reply_to_id,
+                "is_edited": message.is_edited,
+                "created_at": message.created_at,
+                "updated_at": message.updated_at,
+                "deleted_at": message.deleted_at,
+                "reactions": [
+                    {
+                        "id": r.id,
+                        "message_id": r.message_id,
+                        "user_id": r.user_id,
+                        "emoji": r.emoji,
+                        "created_at": r.created_at
+                    }
+                    for r in message.reactions
+                ],
+                "statuses": [
+                    {
+                        "message_id": s.message_id,
+                        "user_id": s.user_id,
+                        "status": s.status,
+                        "timestamp": s.timestamp
+                    }
+                    for s in message.statuses
+                ]
+            }
+
+            # Use pre-fetched user data
+            if message.sender and message.sender.tms_user_id:
+                sender_tms_id = message.sender.tms_user_id
+                if sender_tms_id in users_map:
+                    # Use batch-fetched data
+                    message_dict["sender"] = users_map[sender_tms_id]
+                else:
+                    # Fallback: Try individual cache lookup
+                    try:
+                        from app.core.cache import get_cached_user_data
+                        cached = await get_cached_user_data(sender_tms_id)
+                        if cached:
+                            message_dict["sender"] = cached
+                        else:
+                            # Last resort: Basic sender info
+                            message_dict["sender"] = {
+                                "id": str(message.sender.id),
+                                "tms_user_id": sender_tms_id
+                            }
+                    except Exception:
+                        message_dict["sender"] = {
+                            "id": str(message.sender.id),
+                            "tms_user_id": sender_tms_id
+                        }
+
+            # Handle reply_to enrichment (recursive)
+            if message.reply_to:
+                # For replied messages, use individual enrichment
+                # (these are typically 1-2 messages, not worth batch optimization)
+                message_dict["reply_to"] = await self._enrich_message_with_user_data(
+                    message.reply_to
+                )
+
+            enriched_messages.append(message_dict)
 
         return enriched_messages, next_cursor, has_more
 
