@@ -79,8 +79,10 @@ async def get_current_user(
             )
 
             # Step 4: Sync to local database (async, non-blocking)
-            user_service = UserService(db)
-            local_user = await user_service.upsert_user_from_tms(user_data)
+            from app.repositories.user_repo import UserRepository
+            user_repo = UserRepository(db)
+            local_user = await user_repo.upsert_from_tms(user_id, user_data)
+            await db.commit()
 
             # Step 5: Return user dict for route handlers
             user_dict = {
@@ -91,8 +93,8 @@ async def get_current_user(
                 "username": user_data.get("username"),
                 "first_name": user_data.get("firstName"),
                 "last_name": user_data.get("lastName"),
-                "name": user_data.get("displayName") or user_data.get("name"),
-                "display_name": user_data.get("displayName"),
+                "name": user_data.get("name"),
+                "display_name": user_data.get("name") or f"{user_data.get('firstName', '')} {user_data.get('lastName', '')}".strip(),
                 "image": user_data.get("image"),
                 "role": user_data.get("role"),
                 "position_title": user_data.get("positionTitle"),
