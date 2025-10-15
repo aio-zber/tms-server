@@ -336,7 +336,70 @@ class TMSClient:
             except httpx.RequestError as e:
                 raise TMSAPIException(f"TMS API request failed: {str(e)}")
 
-    async def health_check(self) -> bool:
+    async def get_user_by_id_with_api_key(
+        self,
+        user_id: str,
+        use_cache: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Get user by ID using API Key authentication (server-to-server).
+        This is the PREFERRED method for backend-to-TMS communication.
+
+        Args:
+            user_id: Team Management System user ID
+            use_cache: Whether to check cache first (default: True)
+
+        Returns:
+            User data dictionary
+
+        Raises:
+            TMSAPIException: If user not found or API error
+
+        Example:
+            ```python
+            user = await tms_client.get_user_by_id_with_api_key("user-123")
+            print(user["displayName"], user["email"])
+            ```
+        """
+        # Check cache first
+        if use_cache:
+            cached_user = await get_cached_user_data(user_id)
+            if cached_user:
+                return cached_user
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            try:
+                # Use API Key for server-to-server authentication
+                headers = {
+                    "X-API-Key": self.api_key,
+                    "Content-Type": "application/json",
+                }
+
+                response = await client.get(
+                    f"{self.base_url}/api/v1/users/{user_id}",
+                    headers=headers
+                )
+
+                if response.status_code == 404:
+                    raise TMSAPIException(f"User {user_id} not found in Team Management System")
+
+                if response.status_code != 200:
+                    raise TMSAPIException(
+                        f"Team Management API error: {response.status_code} - {response.text}"
+                    )
+
+                user_data = response.json()
+
+                # Cache the user data (10 min TTL)
+                await cache_user_data(user_id, user_data, ttl=600)
+
+                return user_data
+
+            except httpx.RequestError as e:
+                raise TMSAPIException(f"Failed to connect to Team Management System: {str(e)}")
+
+
+        async def health_check(self) -> bool:
         """
         Check if GCGC User Management API is available.
 
