@@ -268,10 +268,11 @@ class MessageService:
         enriched_message = await self._enrich_message_with_user_data(message)
 
         # Broadcast new message via WebSocket
-        await self.ws_manager.broadcast_new_message(
-            conversation_id,
-            enriched_message
-        )
+        # TODO: Implement WebSocket broadcasting
+        # await self.ws_manager.broadcast_new_message(
+        #     conversation_id,
+        #     enriched_message
+        # )
 
         return enriched_message
 
@@ -409,10 +410,11 @@ class MessageService:
         enriched_message = await self._enrich_message_with_user_data(updated_message)
 
         # Broadcast message edit via WebSocket
-        await self.ws_manager.broadcast_message_edited(
-            message.conversation_id,
-            enriched_message
-        )
+        # TODO: Implement WebSocket broadcasting
+        # await self.ws_manager.broadcast_message_edited(
+        #     message.conversation_id,
+        #     enriched_message
+        # )
 
         return enriched_message
 
@@ -459,10 +461,11 @@ class MessageService:
         await self.db.commit()
 
         # Broadcast message deletion via WebSocket
-        await self.ws_manager.broadcast_message_deleted(
-            message.conversation_id,
-            message_id
-        )
+        # TODO: Implement WebSocket broadcasting
+        # await self.ws_manager.broadcast_message_deleted(
+        #     message.conversation_id,
+        #     message_id
+        # )
 
         return {
             "success": True,
@@ -527,11 +530,12 @@ class MessageService:
         }
 
         # Broadcast reaction added via WebSocket
-        await self.ws_manager.broadcast_reaction_added(
-            message.conversation_id,
-            message_id,
-            reaction_data
-        )
+        # TODO: Implement WebSocket broadcasting
+        # await self.ws_manager.broadcast_reaction_added(
+        #     message.conversation_id,
+        #     message_id,
+        #     reaction_data
+        # )
 
         return reaction_data
 
@@ -574,12 +578,13 @@ class MessageService:
         await self.db.commit()
 
         # Broadcast reaction removed via WebSocket
-        await self.ws_manager.broadcast_reaction_removed(
-            message.conversation_id,
-            message_id,
-            user_id,
-            emoji
-        )
+        # TODO: Implement WebSocket broadcasting
+        # await self.ws_manager.broadcast_reaction_removed(
+        #     message.conversation_id,
+        #     message_id,
+        #     user_id,
+        #     emoji
+        # )
 
         return {
             "success": True,
@@ -618,13 +623,14 @@ class MessageService:
         await self.db.commit()
 
         # Broadcast message status updates via WebSocket
-        for message_id in message_ids:
-            await self.ws_manager.broadcast_message_status(
-                conversation_id,
-                message_id,
-                user_id,
-                MessageStatusType.READ.value
-            )
+        # TODO: Implement WebSocket broadcasting
+        # for message_id in message_ids:
+        #     await self.ws_manager.broadcast_message_status(
+        #         conversation_id,
+        #         message_id,
+        #         user_id,
+        #         MessageStatusType.READ.value
+        #     )
 
         return {
             "success": True,
