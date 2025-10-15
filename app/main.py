@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from app.config import settings
 from app.core.cache import cache
 from app.core.database import engine
-# from app.core.websocket import connection_manager
+from app.core.websocket import connection_manager
 
 
 @asynccontextmanager
@@ -153,4 +153,4 @@ app.include_router(
 )
 
 # Mount WebSocket
-# connection_manager.mount_to_app(app)
+connection_manager.mount_to_app(app)
