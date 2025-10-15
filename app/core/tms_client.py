@@ -390,8 +390,8 @@ class TMSClient:
 
                 user_data = response.json()
 
-                # Cache the user data (10 min TTL)
-                await cache_user_data(user_id, user_data, ttl=600)
+                # Cache the user data (uses default TTL from settings)
+                await cache_user_data(user_id, user_data)
 
                 return user_data
 
