@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 from app.models.conversation import ConversationType, ConversationRole
 
@@ -146,18 +146,21 @@ class ConversationSettingsUpdate(BaseModel):
 class ConversationMemberResponse(BaseModel):
     """Schema for conversation member response."""
 
-    user_id: UUID
+    user_id: UUID = Field(serialization_alias="userId")
     role: ConversationRole
-    joined_at: datetime
-    last_read_at: Optional[datetime]
-    is_muted: bool
-    mute_until: Optional[datetime]
+    joined_at: datetime = Field(serialization_alias="joinedAt")
+    last_read_at: Optional[datetime] = Field(None, serialization_alias="lastReadAt")
+    is_muted: bool = Field(serialization_alias="isMuted")
+    mute_until: Optional[datetime] = Field(None, serialization_alias="muteUntil")
 
     # User info enriched from TMS
     user: Optional[Dict[str, Any]] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(
+        from_attributes=True,
+        populate_by_name=True,
+        ser_json_by_alias=True
+    )
 
 
 class ConversationResponse(BaseModel):
@@ -166,36 +169,39 @@ class ConversationResponse(BaseModel):
     id: UUID
     type: ConversationType
     name: Optional[str]
-    avatar_url: Optional[str]
-    created_by: Optional[UUID]
-    created_at: datetime
-    updated_at: Optional[datetime]
+    avatar_url: Optional[str] = Field(None, serialization_alias="avatarUrl")
+    created_by: Optional[UUID] = Field(None, serialization_alias="createdBy")
+    created_at: datetime = Field(serialization_alias="createdAt")
+    updated_at: Optional[datetime] = Field(None, serialization_alias="updatedAt")
 
     # Related data
     members: List[ConversationMemberResponse] = Field(default_factory=list)
-    member_count: Optional[int] = None
-    unread_count: Optional[int] = None
-    last_message: Optional[Dict[str, Any]] = None
+    member_count: Optional[int] = Field(None, serialization_alias="memberCount")
+    unread_count: Optional[int] = Field(None, serialization_alias="unreadCount")
+    last_message: Optional[Dict[str, Any]] = Field(None, serialization_alias="lastMessage")
 
     # Creator info enriched from TMS
     creator: Optional[Dict[str, Any]] = None
 
-    class Config:
-        from_attributes = True
-        json_schema_extra = {
+    model_config = ConfigDict(
+        from_attributes=True,
+        populate_by_name=True,
+        ser_json_by_alias=True,
+        json_schema_extra={
             "example": {
                 "id": "123e4567-e89b-12d3-a456-426614174000",
                 "type": "group",
                 "name": "Team Discussion",
-                "avatar_url": "https://example.com/avatar.jpg",
-                "created_by": "123e4567-e89b-12d3-a456-426614174001",
-                "created_at": "2025-10-10T10:00:00Z",
-                "updated_at": "2025-10-10T12:00:00Z",
+                "avatarUrl": "https://example.com/avatar.jpg",
+                "createdBy": "123e4567-e89b-12d3-a456-426614174001",
+                "createdAt": "2025-10-10T10:00:00Z",
+                "updatedAt": "2025-10-10T12:00:00Z",
                 "members": [],
-                "member_count": 5,
-                "unread_count": 3
+                "memberCount": 5,
+                "unreadCount": 3
             }
         }
+    )
 
 
 class ConversationListResponse(BaseModel):
