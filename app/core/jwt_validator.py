@@ -61,7 +61,11 @@ def decode_nextauth_jwt(token: str) -> Dict[str, Any]:
         # Try "sub" first (standard JWT claim), then "id" (NextAuth custom claim)
         user_id = payload.get("sub") or payload.get("id")
         if not user_id:
-            raise JWTValidationError("Token missing user ID claim ('sub' or 'id')")
+            # Debug: Log the available claims to understand token structure
+            available_claims = list(payload.keys())
+            raise JWTValidationError(
+                f"Token missing user ID claim ('sub' or 'id'). Available claims: {available_claims}"
+            )
 
         return {
             "user_id": user_id,
