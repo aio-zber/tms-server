@@ -398,8 +398,7 @@ class TMSClient:
             except httpx.RequestError as e:
                 raise TMSAPIException(f"Failed to connect to Team Management System: {str(e)}")
 
-
-        async def health_check(self) -> bool:
+    async def health_check(self) -> bool:
         """
         Check if GCGC User Management API is available.
 
