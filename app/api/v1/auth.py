@@ -2,7 +2,7 @@
 Authentication API endpoints.
 Provides login functionality and token validation using TMS integration.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Header
+from fastapi import APIRouter, Depends, HTTPException, status, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
 from typing import Optional
@@ -36,39 +36,49 @@ class TokenValidationResponse(BaseModel):
 
 @router.post("/login", response_model=LoginResponse)
 async def login(
-    request: LoginRequest,
+    login_request: LoginRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Validate TMS token and authenticate user.
-    
-    This endpoint acts as a proxy to validate TMS tokens and sync user data.
-    It doesn't issue new tokens - it validates existing TMS tokens.
-    
+    Validate TMS authentication and sync user data.
+
+    Supports two authentication methods:
+    1. **Session cookies** (NextAuth) - Preferred for frontend login
+    2. **JWT Bearer tokens** - For API clients
+
     **Flow:**
-    1. Validate token with TMS
-    2. Fetch user profile from TMS /users/me
-    3. Sync user data to local database
-    4. Return user profile
-    
+    1. Extract cookies from request (for NextAuth session)
+    2. Validate with TMS using cookies OR token
+    3. Fetch user profile from TMS /users/me
+    4. Sync user data to local database
+    5. Return user profile
+
     **Request Body:**
     ```json
     {
-        "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        "token": "session-token-or-jwt"
     }
     ```
-    
-    **Returns:** User profile if token is valid
-    
+
+    **Returns:** User profile if authentication is valid
+
     **Errors:**
-    - 401: Invalid or expired token
+    - 401: Invalid or expired authentication
     - 503: TMS service unavailable
     """
     try:
-        # Use UserService to get current user (validates token and syncs data)
+        # Use UserService with cookies support
         user_service = UserService(db)
-        user = await user_service.get_current_user(request.token)
-        
+
+        # Forward request cookies to TMS for session-based auth
+        cookies = dict(request.cookies)
+
+        user = await user_service.get_current_user(
+            token=login_request.token,
+            cookies=cookies if cookies else None
+        )
+
         return LoginResponse(
             success=True,
             user=user,
