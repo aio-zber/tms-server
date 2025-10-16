@@ -267,10 +267,25 @@ class MessageService:
         # Enrich with TMS user data
         enriched_message = await self._enrich_message_with_user_data(message)
 
+        # Convert UUIDs to strings for JSON serialization
+        def convert_uuids_to_strings(obj):
+            """Recursively convert UUID objects to strings for JSON serialization."""
+            if isinstance(obj, dict):
+                return {k: convert_uuids_to_strings(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_uuids_to_strings(item) for item in obj]
+            elif isinstance(obj, UUID):
+                return str(obj)
+            else:
+                return obj
+        
+        # Prepare message for WebSocket broadcast (all UUIDs as strings)
+        broadcast_message = convert_uuids_to_strings(enriched_message)
+
         # Broadcast new message via WebSocket
         await self.ws_manager.broadcast_new_message(
             conversation_id,
-            enriched_message
+            broadcast_message
         )
 
         return enriched_message
