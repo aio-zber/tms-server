@@ -29,12 +29,11 @@ async def get_current_user_endpoint(
     Get current authenticated user profile.
 
     This endpoint:
-    1. Validates the JWT token with TMS
-    2. Fetches full user profile from TMS /users/me
-    3. Syncs user data to local database
-    4. Returns enriched user response
+    1. Decodes NextAuth JWT token to get TMS user ID
+    2. Fetches user from local database
+    3. Returns user profile with local settings
 
-    **Authentication**: Required (JWT token in Authorization header)
+    **Authentication**: Required (NextAuth JWT token in Authorization header)
 
     **Returns**: Full user profile with local settings
     """
@@ -47,14 +46,31 @@ async def get_current_user_endpoint(
     token = authorization.split(" ")[1]
 
     try:
+        # Decode NextAuth token to get TMS user ID
+        from app.core.security import decode_nextauth_token
+        token_payload = decode_nextauth_token(token)
+        tms_user_id = token_payload.get("id")
+
+        if not tms_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token payload - missing user ID"
+            )
+
+        # Get user from local database
         user_service = UserService(db)
-        user = await user_service.get_current_user(token)
+        user = await user_service.get_user_by_tms_id(tms_user_id)
+
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found in database"
+            )
+
         return user
-    except TMSAPIException as e:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Failed to fetch user from TMS: {str(e)}"
-        )
+
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions as-is
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
