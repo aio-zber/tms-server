@@ -27,23 +27,31 @@ class ConnectionManager:
         """Initialize the connection manager."""
         logger.info("Initializing ConnectionManager with WebSocket-only mode")
         logger.info(f"CORS allowed origins: {settings.allowed_origins}")
+        logger.info(f"CORS allowed origins type: {type(settings.allowed_origins)}")
+        logger.info(f"Debug mode: {settings.debug}")
+        logger.info(f"Heartbeat interval: {settings.ws_heartbeat_interval}")
 
-        # Create async Socket.IO server
-        self.sio = socketio.AsyncServer(
-            async_mode='asgi',
-            cors_allowed_origins=settings.allowed_origins,
-            logger=settings.debug,
-            engineio_logger=settings.debug,
-            ping_timeout=settings.ws_heartbeat_interval,
-            ping_interval=settings.ws_heartbeat_interval // 2,
-            # Railway WebSocket configuration
-            always_connect=True,
-            transports=['websocket'],  # WebSocket-only for Railway
-            allow_upgrades=False,  # Disable polling to WebSocket upgrades
-        )
+        try:
+            # Create async Socket.IO server
+            self.sio = socketio.AsyncServer(
+                async_mode='asgi',
+                cors_allowed_origins=settings.allowed_origins,
+                logger=settings.debug,
+                engineio_logger=settings.debug,
+                ping_timeout=settings.ws_heartbeat_interval,
+                ping_interval=settings.ws_heartbeat_interval // 2,
+                # Railway WebSocket configuration
+                always_connect=True,
+                transports=['websocket'],  # WebSocket-only for Railway
+                allow_upgrades=False,  # Disable polling to WebSocket upgrades
+            )
 
-        logger.info("Socket.IO server initialized successfully")
-        logger.info(f"WebSocket endpoint: /ws/socket.io/ (mount point: /ws, socketio_path: socket.io)")
+            logger.info("Socket.IO server initialized successfully")
+            logger.info(f"WebSocket endpoint: /ws/socket.io/ (mount point: /ws, socketio_path: socket.io)")
+        except Exception as e:
+            logger.error(f"Failed to initialize Socket.IO server: {type(e).__name__}: {str(e)}")
+            logger.error(f"Full error:", exc_info=True)
+            raise
 
         # Track connections: {sid: user_id}
         self.connections: Dict[str, UUID] = {}
