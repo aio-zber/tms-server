@@ -126,6 +126,40 @@ async def root():
     }
 
 
+# WebSocket Health Check
+@app.get("/health/websocket", tags=["Health"])
+async def websocket_health_check():
+    """
+    WebSocket configuration health check.
+    Returns WebSocket endpoint information for debugging.
+    """
+    from app.core.websocket import connection_manager
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "status": "configured",
+            "websocket_endpoint": "/ws/socket.io/",
+            "active_connections": len(connection_manager.connections),
+            "active_users": len(connection_manager.user_sessions),
+            "active_conversations": len(connection_manager.conversation_rooms),
+            "config": {
+                "transports": ["websocket"],
+                "path": "/ws/socket.io",
+                "cors_origins": settings.allowed_origins,
+                "heartbeat_interval": settings.ws_heartbeat_interval,
+                "max_connections": settings.ws_max_connections,
+            },
+            "client_config": {
+                "url": "wss://tms-server-staging.up.railway.app" if not settings.is_development else "ws://localhost:8000",
+                "path": "/ws/socket.io",
+                "transports": ["websocket"],
+                "upgrade": False,
+            }
+        }
+    )
+
+
 # Include API routers
 from app.api.v1 import messages, conversations, users, auth
 
