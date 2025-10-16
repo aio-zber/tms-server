@@ -451,7 +451,7 @@ class ConnectionManager:
         """
         return socketio.ASGIApp(
             self.sio,
-            other_asgi_app=fastapi_app,
+            fastapi_app,  # Pass FastAPI app as positional argument
             socketio_path='socket.io',  # Default Socket.IO path
         )
 
