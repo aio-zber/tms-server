@@ -8,9 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import extract_token_from_header, SecurityException
-from app.core.tms_client import tms_client, TMSAPIException
 from app.core.jwt_validator import decode_nextauth_jwt, JWTValidationError
-from app.services.user_service import UserService
 
 
 async def get_current_user(
@@ -69,61 +67,43 @@ async def get_current_user(
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        # Step 3: Get user data (with caching for performance)
-        try:
-            # Try to fetch user from Team Management using API Key (with cache)
-            # This reduces calls to Team Management by 95%
-            user_data = await tms_client.get_user_by_id_with_api_key(
-                user_id=user_id,
-                use_cache=True  # Check cache first (10 min TTL)
+        # Step 3: Get user from local database
+        # User data should already be synced from GCGC TMS during initial login
+        from app.models.user import User
+        from sqlalchemy import select
+
+        result = await db.execute(
+            select(User).where(User.tms_user_id == user_id)
+        )
+        local_user = result.scalar_one_or_none()
+
+        if not local_user:
+            # User not found in local DB - they may need to log in to GCGC TMS first
+            # to sync their profile, or user was deleted from GCGC TMS
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found. Please log in to GCGC Team Management System to sync your profile.",
+                headers={"WWW-Authenticate": "Bearer"},
             )
 
-            # Step 4: Sync to local database (async, non-blocking)
-            from app.repositories.user_repo import UserRepository
-            user_repo = UserRepository(db)
-            local_user = await user_repo.upsert_from_tms(user_id, user_data)
-            await db.commit()
-
-            # Step 5: Return user dict for route handlers
-            user_dict = {
-                "id": user_data.get("id"),
-                "tms_user_id": user_data.get("id"),
-                "local_user_id": str(local_user.id),
-                "email": user_data.get("email"),
-                "username": user_data.get("username"),
-                "first_name": user_data.get("firstName"),
-                "last_name": user_data.get("lastName"),
-                "name": user_data.get("name"),
-                "display_name": user_data.get("name") or f"{user_data.get('firstName', '')} {user_data.get('lastName', '')}".strip(),
-                "image": user_data.get("image"),
-                "role": user_data.get("role"),
-                "position_title": user_data.get("positionTitle"),
-                "division": user_data.get("division"),
-                "department": user_data.get("department"),
-                "section": user_data.get("section"),
-                "custom_team": user_data.get("customTeam"),
-                "is_active": user_data.get("isActive", True),
-                "is_leader": user_data.get("isLeader", False),
-            }
-            return user_dict
-
-        except TMSAPIException as e:
-            # If Team Management API fails, we can still work with JWT data
-            # This provides resilience even if Team Management is temporarily down
-            print(f"Warning: Team Management API unavailable: {e}")
-
-            # Fallback to JWT data only (limited info but allows app to work)
-            return {
-                "id": user_id,
-                "tms_user_id": user_id,
-                "email": jwt_payload.get("email"),
-                "name": jwt_payload.get("name"),
-                "display_name": jwt_payload.get("name"),
-                "image": jwt_payload.get("picture"),
-                "role": "MEMBER",  # Default role
-                "is_active": True,
-                "is_leader": False,
-            }
+        # Step 4: Return user dict for route handlers
+        # All user profile data comes from local DB (synced from GCGC TMS)
+        user_dict = {
+            "id": local_user.tms_user_id,
+            "tms_user_id": local_user.tms_user_id,
+            "local_user_id": str(local_user.id),
+            "email": jwt_payload.get("email"),  # From JWT
+            "username": jwt_payload.get("username"),  # From JWT
+            "name": jwt_payload.get("name"),  # From JWT
+            "display_name": jwt_payload.get("name"),  # From JWT
+            "image": jwt_payload.get("picture"),  # From JWT
+            # Note: Role and other profile fields would come from local DB if needed
+            # For now, we use JWT data for basic info and local DB for messaging-specific data
+            "role": "MEMBER",  # Default role (can be enhanced later)
+            "is_active": True,
+            "is_leader": False,
+        }
+        return user_dict
 
     except SecurityException as e:
         raise HTTPException(
