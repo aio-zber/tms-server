@@ -33,8 +33,8 @@ class ConnectionManager:
 
         try:
             # Prepare CORS origins - python-socketio expects list or "*"
-            # settings.allowed_origins is now always a list thanks to field_validator
-            cors_origins = settings.allowed_origins if settings.allowed_origins else ["*"]
+            # Convert comma-separated string to list
+            cors_origins = settings.get_allowed_origins_list() if settings.allowed_origins else ["*"]
             logger.info(f"Prepared CORS origins for Socket.IO: {cors_origins}")
 
             # Create async Socket.IO server
