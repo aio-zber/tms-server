@@ -95,43 +95,29 @@ class Settings(BaseSettings):
     sentry_dsn: str = Field(default="", description="Sentry DSN for error tracking")
     sentry_environment: str = Field(default="development", description="Sentry environment")
 
-    @field_validator("allowed_origins", mode="before")
-    @classmethod
-    def parse_cors_origins(cls, v) -> List[str]:
-        """Parse comma-separated CORS origins into a list."""
-        if isinstance(v, list):
-            return v
-        if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",") if origin.strip()]
-        return ["http://localhost:3000"]
-
-    @field_validator("allowed_hosts", mode="before")
-    @classmethod
-    def parse_allowed_hosts(cls, v) -> List[str]:
-        """Parse comma-separated allowed hosts into a list."""
-        if isinstance(v, list):
-            return v
-        if isinstance(v, str):
-            return [host.strip() for host in v.split(",") if host.strip()]
-        return ["localhost", "127.0.0.1"]
-
-    @field_validator("allowed_file_types", mode="before")
-    @classmethod
-    def parse_file_types(cls, v) -> List[str]:
-        """Parse comma-separated file types into a list."""
-        if isinstance(v, list):
-            return v
-        if isinstance(v, str):
-            return [file_type.strip() for file_type in v.split(",") if file_type.strip()]
-        return ["image/jpeg", "image/png", "image/gif", "application/pdf"]
-
     def get_allowed_origins_list(self) -> List[str]:
         """Get allowed origins as a list."""
-        return self.parse_cors_origins(self.allowed_origins)
+        if isinstance(self.allowed_origins, list):
+            return self.allowed_origins
+        if isinstance(self.allowed_origins, str):
+            return [origin.strip() for origin in self.allowed_origins.split(",") if origin.strip()]
+        return ["http://localhost:3000"]
     
     def get_allowed_hosts_list(self) -> List[str]:
         """Get allowed hosts as a list."""
-        return self.parse_allowed_hosts(self.allowed_hosts)
+        if isinstance(self.allowed_hosts, list):
+            return self.allowed_hosts
+        if isinstance(self.allowed_hosts, str):
+            return [host.strip() for host in self.allowed_hosts.split(",") if host.strip()]
+        return ["localhost", "127.0.0.1"]
+    
+    def get_allowed_file_types_list(self) -> List[str]:
+        """Get allowed file types as a list."""
+        if isinstance(self.allowed_file_types, list):
+            return self.allowed_file_types
+        if isinstance(self.allowed_file_types, str):
+            return [ft.strip() for ft in self.allowed_file_types.split(",") if ft.strip()]
+        return ["image/jpeg", "image/png", "image/gif", "application/pdf"]
 
     @property
     def is_production(self) -> bool:
