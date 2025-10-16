@@ -243,7 +243,31 @@ class ConnectionManager:
                 # Join Socket.IO room
                 room_name = f"conversation:{conversation_id}"
                 logger.info(f"[join_conversation] Joining Socket.IO room: {room_name}")
+                logger.info(f"[join_conversation] SID being added: {sid}")
+                
                 await self.sio.enter_room(sid, room_name)
+                
+                # VERIFY the room actually exists in Socket.IO manager
+                try:
+                    # Access rooms from the default namespace ('/')
+                    namespace = '/'
+                    if hasattr(self.sio.manager, 'rooms'):
+                        # For AsyncManager, rooms are stored per namespace
+                        if namespace in self.sio.manager.rooms:
+                            namespace_rooms = self.sio.manager.rooms[namespace]
+                            if room_name in namespace_rooms:
+                                logger.info(f"[join_conversation] ✅ VERIFIED: Room '{room_name}' exists in Socket.IO manager")
+                                logger.info(f"[join_conversation] SIDs in Socket.IO room: {namespace_rooms[room_name]}")
+                            else:
+                                logger.error(f"[join_conversation] ❌ PROBLEM: Room '{room_name}' NOT in Socket.IO manager after enter_room()!")
+                                logger.error(f"[join_conversation] Available rooms in namespace: {list(namespace_rooms.keys())[:10]}")  # Show first 10
+                        else:
+                            logger.error(f"[join_conversation] Namespace '/' not found in manager.rooms")
+                            logger.error(f"[join_conversation] Available namespaces: {list(self.sio.manager.rooms.keys())}")
+                    else:
+                        logger.warning(f"[join_conversation] Cannot access manager.rooms - using alternative verification")
+                except Exception as e:
+                    logger.error(f"[join_conversation] Error checking Socket.IO rooms: {e}", exc_info=True)
 
                 # Track in conversation rooms
                 if conversation_id not in self.conversation_rooms:
@@ -252,6 +276,7 @@ class ConnectionManager:
 
                 logger.info(f"[join_conversation] SUCCESS: User {user_id} joined conversation {conversation_id}")
                 logger.info(f"[join_conversation] Active rooms for conversation {conversation_id}: {len(self.conversation_rooms[conversation_id])} members")
+                logger.info(f"[join_conversation] Our internal tracking - SIDs: {self.conversation_rooms[conversation_id]}")
 
                 await self.sio.emit('joined_conversation', {
                     'conversation_id': str(conversation_id)
@@ -355,14 +380,24 @@ class ConnectionManager:
 
         # Log all Socket.IO rooms and their members for debugging
         try:
-            all_rooms = self.sio.manager.rooms
-            logger.info(f"[broadcast_new_message] All Socket.IO rooms: {list(all_rooms.keys())}")
-            if room in all_rooms:
-                logger.info(f"[broadcast_new_message] SIDs in target room '{room}': {all_rooms[room]}")
+            namespace = '/'
+            if hasattr(self.sio.manager, 'rooms') and namespace in self.sio.manager.rooms:
+                namespace_rooms = self.sio.manager.rooms[namespace]
+                logger.info(f"[broadcast_new_message] Total Socket.IO rooms in namespace: {len(namespace_rooms)}")
+                logger.info(f"[broadcast_new_message] Sample rooms: {list(namespace_rooms.keys())[:5]}")
+                
+                if room in namespace_rooms:
+                    logger.info(f"[broadcast_new_message] ✅ Room '{room}' EXISTS in Socket.IO manager")
+                    logger.info(f"[broadcast_new_message] SIDs in target room '{room}': {namespace_rooms[room]}")
+                else:
+                    logger.warning(f"[broadcast_new_message] ⚠️  Room '{room}' does NOT exist in Socket.IO manager!")
+                    logger.warning(f"[broadcast_new_message] Searching for similar rooms...")
+                    matching_rooms = [r for r in namespace_rooms.keys() if 'conversation:' in r]
+                    logger.warning(f"[broadcast_new_message] Found {len(matching_rooms)} conversation rooms: {matching_rooms[:3]}")
             else:
-                logger.warning(f"[broadcast_new_message] ⚠️  Room '{room}' does not exist in Socket.IO manager!")
+                logger.error(f"[broadcast_new_message] Cannot access Socket.IO manager rooms!")
         except Exception as e:
-            logger.error(f"[broadcast_new_message] Error checking rooms: {e}")
+            logger.error(f"[broadcast_new_message] Error checking rooms: {e}", exc_info=True)
         
         # Broadcast the message
         await self.sio.emit('new_message', message_data, room=room, skip_sid=sender_sid)
