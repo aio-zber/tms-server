@@ -178,4 +178,7 @@ app.include_router(
 )
 
 # Mount WebSocket
-connection_manager.mount_to_app(app)
+# Remove the custom mount method and use direct ASGI app mount
+from app.core.websocket import connection_manager
+sio_app = connection_manager.get_asgi_app()
+app.mount('/ws', sio_app)
