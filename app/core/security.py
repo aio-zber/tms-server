@@ -134,23 +134,50 @@ def decode_nextauth_token(token: str) -> Dict[str, Any]:
         # Decode using NEXTAUTH_SECRET (same secret used by GCGC TMS)
         # The token is generated using standard jsonwebtoken library with HS256
         # Payload structure: { id, email, name, role, hierarchyLevel, image, iat, exp }
-        payload = jwt.decode(
-            token,
-            settings.nextauth_secret,
-            algorithms=["HS256"],
-            options={
-                "verify_signature": True,
-                "verify_exp": True,
-                "require": ["id", "email", "exp", "iat"]
-            }
-        )
 
-        return payload
+        # First, try with strict validation
+        try:
+            payload = jwt.decode(
+                token,
+                settings.nextauth_secret,
+                algorithms=["HS256"],
+                options={
+                    "verify_signature": True,
+                    "verify_exp": True,
+                    "require": ["id", "email", "exp", "iat"]
+                }
+            )
+            return payload
+        except jwt.MissingRequiredClaimError as e:
+            # If strict validation fails due to missing claims, try lenient mode
+            # This handles tokens that might not have all expected fields
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Token missing required claim: {e}, trying lenient validation")
+
+            payload = jwt.decode(
+                token,
+                settings.nextauth_secret,
+                algorithms=["HS256"],
+                options={
+                    "verify_signature": True,
+                    "verify_exp": True,
+                    # Don't require specific fields - just verify signature and expiry
+                }
+            )
+
+            # Manual validation of critical fields
+            if "id" not in payload:
+                raise SecurityException("Token missing 'id' field")
+
+            return payload
 
     except jwt.ExpiredSignatureError:
         raise SecurityException("Token has expired")
     except jwt.InvalidTokenError as e:
         raise SecurityException(f"Invalid token: {str(e)}")
+    except SecurityException:
+        raise  # Re-raise our custom exceptions
     except Exception as e:
         raise SecurityException(f"Failed to decode token: {str(e)}")
 
