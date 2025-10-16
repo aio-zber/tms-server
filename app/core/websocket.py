@@ -32,18 +32,19 @@ class ConnectionManager:
         logger.info(f"Heartbeat interval: {settings.ws_heartbeat_interval}")
 
         try:
+            # Prepare CORS origins - python-socketio expects list or "*"
+            cors_origins = settings.allowed_origins if isinstance(settings.allowed_origins, list) else ["*"]
+            logger.info(f"Prepared CORS origins for Socket.IO: {cors_origins}")
+
             # Create async Socket.IO server
+            # Note: Railway requires WebSocket-only mode (no polling)
             self.sio = socketio.AsyncServer(
                 async_mode='asgi',
-                cors_allowed_origins=settings.allowed_origins,
+                cors_allowed_origins=cors_origins,
                 logger=settings.debug,
                 engineio_logger=settings.debug,
                 ping_timeout=settings.ws_heartbeat_interval,
                 ping_interval=settings.ws_heartbeat_interval // 2,
-                # Railway WebSocket configuration
-                always_connect=True,
-                transports=['websocket'],  # WebSocket-only for Railway
-                allow_upgrades=False,  # Disable polling to WebSocket upgrades
             )
 
             logger.info("Socket.IO server initialized successfully")
@@ -428,17 +429,27 @@ class ConnectionManager:
         Get the ASGI app for Socket.IO.
 
         Returns:
-            Socket.IO ASGI app configured for Railway
+            Socket.IO ASGI app configured for Railway with WebSocket-only transport
 
         Critical: socketio_path is the path WITHIN the mounted app.
         Since this app is mounted at '/ws', Socket.IO will listen at '/ws/{socketio_path}'.
         The default socketio_path is 'socket.io/', so final URL is '/ws/socket.io/'.
 
         Client should connect to base URL with path='/ws/socket.io'
+
+        engineio_options configures Engine.IO (the underlying transport layer):
+        - transports: ['websocket'] forces WebSocket-only (no polling fallback)
+        - allow_upgrades: False prevents client from trying to upgrade from polling
+        - This is CRITICAL for Railway deployment
         """
         return socketio.ASGIApp(
             self.sio,
-            socketio_path='socket.io'  # Socket.IO path (appended to mount point '/ws')
+            socketio_path='socket.io',  # Socket.IO path (appended to mount point '/ws')
+            # Engine.IO configuration for WebSocket-only mode
+            engineio_options={
+                'transports': ['websocket'],
+                'allow_upgrades': False,
+            }
         )
 
 
