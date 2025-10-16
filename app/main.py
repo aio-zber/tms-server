@@ -119,9 +119,16 @@ async def readiness_check():
 @app.get("/", tags=["Root"])
 async def root():
     """Root endpoint with API information."""
+    import subprocess
+    try:
+        git_hash = subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD']).decode('ascii').strip()
+    except:
+        git_hash = "unknown"
+
     return {
         "message": "TMS Messaging Server API",
         "version": "1.0.0",
+        "git_commit": git_hash,
         "docs": "/docs" if settings.debug else "Documentation disabled in production",
     }
 
