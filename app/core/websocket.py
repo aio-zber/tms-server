@@ -381,21 +381,37 @@ class ConnectionManager:
         # Log all Socket.IO rooms and their members for debugging
         try:
             namespace = '/'
-            if hasattr(self.sio.manager, 'rooms') and namespace in self.sio.manager.rooms:
-                namespace_rooms = self.sio.manager.rooms[namespace]
-                logger.info(f"[broadcast_new_message] Total Socket.IO rooms in namespace: {len(namespace_rooms)}")
-                logger.info(f"[broadcast_new_message] Sample rooms: {list(namespace_rooms.keys())[:5]}")
+            logger.info(f"[broadcast_new_message] Checking Socket.IO manager...")
+            logger.info(f"[broadcast_new_message] Manager type: {type(self.sio.manager)}")
+            logger.info(f"[broadcast_new_message] Has 'rooms' attr: {hasattr(self.sio.manager, 'rooms')}")
+            
+            if hasattr(self.sio.manager, 'rooms'):
+                logger.info(f"[broadcast_new_message] manager.rooms type: {type(self.sio.manager.rooms)}")
+                logger.info(f"[broadcast_new_message] manager.rooms content: {self.sio.manager.rooms}")
+                logger.info(f"[broadcast_new_message] Namespaces in manager.rooms: {list(self.sio.manager.rooms.keys()) if self.sio.manager.rooms else 'None'}")
                 
-                if room in namespace_rooms:
-                    logger.info(f"[broadcast_new_message] ✅ Room '{room}' EXISTS in Socket.IO manager")
-                    logger.info(f"[broadcast_new_message] SIDs in target room '{room}': {namespace_rooms[room]}")
+                if namespace in self.sio.manager.rooms:
+                    namespace_rooms = self.sio.manager.rooms[namespace]
+                    logger.info(f"[broadcast_new_message] namespace_rooms type: {type(namespace_rooms)}")
+                    if namespace_rooms:
+                        logger.info(f"[broadcast_new_message] Total Socket.IO rooms in namespace: {len(namespace_rooms)}")
+                        logger.info(f"[broadcast_new_message] Sample rooms: {list(namespace_rooms.keys())[:5]}")
+                        
+                        if room in namespace_rooms:
+                            logger.info(f"[broadcast_new_message] ✅ Room '{room}' EXISTS in Socket.IO manager")
+                            logger.info(f"[broadcast_new_message] SIDs in target room '{room}': {namespace_rooms[room]}")
+                        else:
+                            logger.warning(f"[broadcast_new_message] ⚠️  Room '{room}' does NOT exist in Socket.IO manager!")
+                            logger.warning(f"[broadcast_new_message] Searching for similar rooms...")
+                            matching_rooms = [r for r in namespace_rooms.keys() if 'conversation:' in str(r)]
+                            logger.warning(f"[broadcast_new_message] Found {len(matching_rooms)} conversation rooms: {matching_rooms[:3]}")
+                    else:
+                        logger.error(f"[broadcast_new_message] namespace_rooms is None or empty!")
                 else:
-                    logger.warning(f"[broadcast_new_message] ⚠️  Room '{room}' does NOT exist in Socket.IO manager!")
-                    logger.warning(f"[broadcast_new_message] Searching for similar rooms...")
-                    matching_rooms = [r for r in namespace_rooms.keys() if 'conversation:' in r]
-                    logger.warning(f"[broadcast_new_message] Found {len(matching_rooms)} conversation rooms: {matching_rooms[:3]}")
+                    logger.error(f"[broadcast_new_message] Namespace '/' not found in manager.rooms!")
+                    logger.error(f"[broadcast_new_message] Available namespaces: {list(self.sio.manager.rooms.keys())}")
             else:
-                logger.error(f"[broadcast_new_message] Cannot access Socket.IO manager rooms!")
+                logger.error(f"[broadcast_new_message] Socket.IO manager has no 'rooms' attribute!")
         except Exception as e:
             logger.error(f"[broadcast_new_message] Error checking rooms: {e}", exc_info=True)
         
