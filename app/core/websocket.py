@@ -25,6 +25,9 @@ class ConnectionManager:
 
     def __init__(self):
         """Initialize the connection manager."""
+        logger.info("Initializing ConnectionManager with WebSocket-only mode")
+        logger.info(f"CORS allowed origins: {settings.allowed_origins}")
+
         # Create async Socket.IO server
         self.sio = socketio.AsyncServer(
             async_mode='asgi',
@@ -38,6 +41,9 @@ class ConnectionManager:
             transports=['websocket'],  # WebSocket-only for Railway
             allow_upgrades=False,  # Disable polling to WebSocket upgrades
         )
+
+        logger.info("Socket.IO server initialized successfully")
+        logger.info(f"WebSocket endpoint: /ws/socket.io/ (mount point: /ws, socketio_path: socket.io)")
 
         # Track connections: {sid: user_id}
         self.connections: Dict[str, UUID] = {}
@@ -415,10 +421,16 @@ class ConnectionManager:
 
         Returns:
             Socket.IO ASGI app configured for Railway
+
+        Critical: socketio_path is the path WITHIN the mounted app.
+        Since this app is mounted at '/ws', Socket.IO will listen at '/ws/{socketio_path}'.
+        The default socketio_path is 'socket.io/', so final URL is '/ws/socket.io/'.
+
+        Client should connect to base URL with path='/ws/socket.io'
         """
         return socketio.ASGIApp(
             self.sio,
-            socketio_path='socket.io'
+            socketio_path='socket.io'  # Socket.IO path (appended to mount point '/ws')
         )
 
 
