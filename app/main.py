@@ -121,8 +121,8 @@ async def root():
     """Root endpoint with API information."""
     return {
         "message": "TMS Messaging Server API",
-        "version": "1.0.1",  # Increment to verify deployment
-        "deployed_at": "2025-10-16T03:00:00Z",  # Timestamp to verify
+        "version": "1.0.2",  # Socket.IO wraps FastAPI (correct pattern)
+        "deployed_at": "2025-10-16T06:15:00Z",  # Timestamp to verify
         "docs": "/docs" if settings.debug else "Documentation disabled in production",
     }
 
