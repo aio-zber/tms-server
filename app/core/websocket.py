@@ -414,23 +414,12 @@ class ConnectionManager:
         Get the ASGI app for Socket.IO.
 
         Returns:
-            Socket.IO ASGI app
+            Socket.IO ASGI app configured for Railway
         """
-        return socketio.ASGIApp(self.sio)
-
-    def mount_to_app(self, app: FastAPI):
-        """
-        Mount Socket.IO to FastAPI app.
-
-        Args:
-            app: FastAPI application instance
-        """
-        # Create Socket.IO ASGI app with socket_path
-        sio_asgi_app = socketio.ASGIApp(
+        return socketio.ASGIApp(
             self.sio,
-            socketio_path='socket.io'  # This makes it accessible at /ws/socket.io
+            socketio_path='socket.io'
         )
-        app.mount('/ws', sio_asgi_app)
 
 
 # Global connection manager instance
