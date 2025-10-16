@@ -50,12 +50,12 @@ class Settings(BaseSettings):
     jwt_expiration_hours: int = Field(default=24, description="JWT expiration time in hours")
     nextauth_secret: str = Field(..., min_length=32, description="NextAuth secret key from GCGC TMS (same as NEXTAUTH_SECRET)")
 
-    # CORS (will be converted to list by validator)
-    allowed_origins: List[str] = Field(
+    # CORS (string will be converted to list by validator)
+    allowed_origins: str = Field(
         default="http://localhost:3000",
         description="Comma-separated list of allowed CORS origins"
     )
-    allowed_hosts: List[str] = Field(
+    allowed_hosts: str = Field(
         default="localhost,127.0.0.1",
         description="Comma-separated list of allowed hosts"
     )
@@ -124,6 +124,14 @@ class Settings(BaseSettings):
         if isinstance(v, str):
             return [file_type.strip() for file_type in v.split(",") if file_type.strip()]
         return ["image/jpeg", "image/png", "image/gif", "application/pdf"]
+
+    def get_allowed_origins_list(self) -> List[str]:
+        """Get allowed origins as a list."""
+        return self.parse_cors_origins(self.allowed_origins)
+    
+    def get_allowed_hosts_list(self) -> List[str]:
+        """Get allowed hosts as a list."""
+        return self.parse_allowed_hosts(self.allowed_hosts)
 
     @property
     def is_production(self) -> bool:
