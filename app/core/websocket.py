@@ -33,6 +33,10 @@ class ConnectionManager:
             engineio_logger=settings.debug,
             ping_timeout=settings.ws_heartbeat_interval,
             ping_interval=settings.ws_heartbeat_interval // 2,
+            # Railway WebSocket configuration
+            always_connect=True,
+            transports=['websocket'],  # WebSocket-only for Railway
+            allow_upgrades=False,  # Disable polling to WebSocket upgrades
         )
 
         # Track connections: {sid: user_id}
