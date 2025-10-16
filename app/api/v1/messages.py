@@ -48,33 +48,45 @@ async def send_message(
     - **metadata_json**: Additional metadata (URLs, dimensions, etc.)
     - **reply_to_id**: Optional UUID of message being replied to
     """
-    service = MessageService(db)
+    try:
+        service = MessageService(db)
 
-    # Get user_id from local user record
-    from app.models.user import User
-    from sqlalchemy import select
+        # Get user_id from local user record
+        from app.models.user import User
+        from sqlalchemy import select
 
-    result = await db.execute(
-        select(User).where(User.tms_user_id == current_user["tms_user_id"])
-    )
-    user = result.scalar_one_or_none()
+        result = await db.execute(
+            select(User).where(User.tms_user_id == current_user["tms_user_id"])
+        )
+        user = result.scalar_one_or_none()
 
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found in local database"
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found in local database"
+            )
+
+        message = await service.send_message(
+            sender_id=user.id,
+            conversation_id=message_data.conversation_id,
+            content=message_data.content,
+            message_type=message_data.type,
+            metadata_json=message_data.metadata_json,
+            reply_to_id=message_data.reply_to_id
         )
 
-    message = await service.send_message(
-        sender_id=user.id,
-        conversation_id=message_data.conversation_id,
-        content=message_data.content,
-        message_type=message_data.type,
-        metadata_json=message_data.metadata_json,
-        reply_to_id=message_data.reply_to_id
-    )
-
-    return message
+        return message
+    except Exception as e:
+        # Log the full error
+        import traceback
+        print(f"❌ ERROR sending message: {type(e).__name__}: {str(e)}")
+        print(traceback.format_exc())
+        
+        # Re-raise with more details
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to send message: {type(e).__name__}: {str(e)}"
+        )
 
 
 @router.get(
