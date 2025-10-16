@@ -67,8 +67,7 @@ async def get_current_user(
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        # Step 3: Get user from local database
-        # User data should already be synced from GCGC TMS during initial login
+        # Step 3: Get user from local database (or create if first time)
         from app.models.user import User
         from sqlalchemy import select
 
@@ -78,13 +77,15 @@ async def get_current_user(
         local_user = result.scalar_one_or_none()
 
         if not local_user:
-            # User not found in local DB - they may need to log in to GCGC TMS first
-            # to sync their profile, or user was deleted from GCGC TMS
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="User not found. Please log in to GCGC Team Management System to sync your profile.",
-                headers={"WWW-Authenticate": "Bearer"},
+            # User doesn't exist in local DB yet - create minimal record
+            # Full profile sync happens separately via /api/v1/users/sync endpoint
+            local_user = User(
+                tms_user_id=user_id,
+                settings_json={}
             )
+            db.add(local_user)
+            await db.commit()
+            await db.refresh(local_user)
 
         # Step 4: Return user dict for route handlers
         # All user profile data comes from local DB (synced from GCGC TMS)
