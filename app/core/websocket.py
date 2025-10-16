@@ -38,6 +38,7 @@ class ConnectionManager:
 
             # Create async Socket.IO server
             # Note: Railway requires WebSocket-only mode (no polling)
+            # Engine.IO configuration is done via environment variables or server params
             self.sio = socketio.AsyncServer(
                 async_mode='asgi',
                 cors_allowed_origins=cors_origins,
@@ -45,6 +46,9 @@ class ConnectionManager:
                 engineio_logger=settings.debug,
                 ping_timeout=settings.ws_heartbeat_interval,
                 ping_interval=settings.ws_heartbeat_interval // 2,
+                # Critical: These control Engine.IO transport layer
+                # But python-socketio 5.12.0 doesn't support these in AsyncServer
+                # They must be configured in the ASGI wrapper or client-side
             )
 
             logger.info("Socket.IO server initialized successfully")
@@ -429,27 +433,24 @@ class ConnectionManager:
         Get the ASGI app for Socket.IO.
 
         Returns:
-            Socket.IO ASGI app configured for Railway with WebSocket-only transport
+            Socket.IO ASGI app configured for Railway
 
-        Critical: socketio_path is the path WITHIN the mounted app.
-        Since this app is mounted at '/ws', Socket.IO will listen at '/ws/{socketio_path}'.
-        The default socketio_path is 'socket.io/', so final URL is '/ws/socket.io/'.
+        Critical: When using app.mount('/ws', sio_app), the socketio_path should be
+        the path RELATIVE to the mount point.
 
-        Client should connect to base URL with path='/ws/socket.io'
+        FastAPI strips '/ws' prefix before passing to mounted app, so:
+        - Client connects to: /ws/socket.io/
+        - FastAPI strips '/ws' → Socket.IO sees: /socket.io/
+        - Therefore socketio_path must be: '/socket.io' (with leading slash)
 
-        engineio_options configures Engine.IO (the underlying transport layer):
-        - transports: ['websocket'] forces WebSocket-only (no polling fallback)
-        - allow_upgrades: False prevents client from trying to upgrade from polling
-        - This is CRITICAL for Railway deployment
+        Note: python-socketio 5.12.0 ASGIApp doesn't support engineio_options.
+        WebSocket-only mode is enforced client-side via Socket.IO client config:
+        - transports: ['websocket']
+        - upgrade: false
         """
         return socketio.ASGIApp(
             self.sio,
-            socketio_path='socket.io',  # Socket.IO path (appended to mount point '/ws')
-            # Engine.IO configuration for WebSocket-only mode
-            engineio_options={
-                'transports': ['websocket'],
-                'allow_upgrades': False,
-            }
+            socketio_path='/socket.io',  # Path after FastAPI strips '/ws' prefix
         )
 
 

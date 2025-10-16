@@ -187,8 +187,12 @@ app.include_router(
     tags=["Authentication"]
 )
 
-# Mount WebSocket
-# Remove the custom mount method and use direct ASGI app mount
+# Mount WebSocket - Socket.IO ASGI app at /ws prefix
+# Client connects to: wss://domain/ws/socket.io/?EIO=4&transport=websocket
 from app.core.websocket import connection_manager
+
+# Get Socket.IO ASGI app (returns socketio.ASGIApp instance)
 sio_app = connection_manager.get_asgi_app()
+
+# Mount at /ws - Socket.IO will handle /ws/socket.io/* internally
 app.mount('/ws', sio_app)
