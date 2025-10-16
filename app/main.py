@@ -39,7 +39,7 @@ app = FastAPI(
 
 
 # CORS Middleware
-# Note: For WebSocket connections, CORS is handled by Socket.IO itself
+# Note: For WebSocket connections, CORS is handled by Socket.IO itself (via cors_allowed_origins)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,
@@ -48,30 +48,6 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"],
 )
-
-# Add WebSocket upgrade headers middleware
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import Response
-
-class WebSocketCORSMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        # Check if this is a WebSocket upgrade request
-        if request.headers.get("upgrade") == "websocket":
-            # Allow WebSocket connections from allowed origins
-            origin = request.headers.get("origin")
-            if origin in settings.allowed_origins:
-                response = await call_next(request)
-                return response
-            else:
-                # Reject WebSocket from unauthorized origin
-                return Response("Unauthorized", status_code=403)
-
-        # For regular HTTP requests, pass through
-        response = await call_next(request)
-        return response
-
-app.add_middleware(WebSocketCORSMiddleware)
 
 
 # Health Check Endpoints
