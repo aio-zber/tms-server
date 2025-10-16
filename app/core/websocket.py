@@ -178,15 +178,21 @@ class ConnectionManager:
                         await set_user_presence(str(user_id), 'offline')
 
                 # Remove from conversation rooms
+                rooms_left = []
                 for conv_id, sids in list(self.conversation_rooms.items()):
-                    sids.discard(sid)
+                    if sid in sids:
+                        rooms_left.append(str(conv_id))
+                        sids.discard(sid)
+                        logger.info(f"[disconnect] Removed {sid} from conversation room: {conv_id}")
                     if not sids:
                         del self.conversation_rooms[conv_id]
+                        logger.info(f"[disconnect] Conversation room {conv_id} is now empty")
 
                 # Remove connection
                 del self.connections[sid]
 
-                logger.info(f"Client disconnected: {sid} (user: {user_id})")
+                logger.info(f"[disconnect] Client disconnected: {sid} (user: {user_id})")
+                logger.info(f"[disconnect] User left {len(rooms_left)} conversation rooms: {rooms_left}")
 
         @self.sio.event
         async def join_conversation(sid, data):
@@ -347,8 +353,25 @@ class ConnectionManager:
         logger.info(f"[broadcast_new_message] Message ID: {message_data.get('id')}")
         logger.info(f"[broadcast_new_message] Sender ID: {message_data.get('sender_id')}")
 
+        # Log all Socket.IO rooms and their members for debugging
+        try:
+            all_rooms = self.sio.manager.rooms
+            logger.info(f"[broadcast_new_message] All Socket.IO rooms: {list(all_rooms.keys())}")
+            if room in all_rooms:
+                logger.info(f"[broadcast_new_message] SIDs in target room '{room}': {all_rooms[room]}")
+            else:
+                logger.warning(f"[broadcast_new_message] ⚠️  Room '{room}' does not exist in Socket.IO manager!")
+        except Exception as e:
+            logger.error(f"[broadcast_new_message] Error checking rooms: {e}")
+        
+        # Broadcast the message
         await self.sio.emit('new_message', message_data, room=room, skip_sid=sender_sid)
-        logger.info(f"[broadcast_new_message] Message broadcasted successfully")
+        logger.info(f"[broadcast_new_message] ✅ Message emitted to Socket.IO room: {room}")
+        
+        # Verify our internal tracking matches Socket.IO
+        if len(room_members) == 0:
+            logger.warning(f"[broadcast_new_message] ⚠️  WARNING: No members in our internal tracking for {room}!")
+            logger.warning(f"[broadcast_new_message] This message may not be received by anyone!")
 
     async def broadcast_message_edited(
         self,
