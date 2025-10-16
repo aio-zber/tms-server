@@ -71,11 +71,22 @@ class ConnectionManager:
                 from app.core.security import decode_nextauth_token
                 from app.core.tms_client import tms_client
 
-                token_payload = decode_nextauth_token(token)
+                logger.info(f"Attempting to decode token for sid: {sid}")
+                logger.info(f"Token (first 20 chars): {token[:20]}...")
+
+                try:
+                    token_payload = decode_nextauth_token(token)
+                    logger.info(f"Token payload: {token_payload}")
+                except Exception as decode_error:
+                    logger.error(f"Token decode failed: {type(decode_error).__name__}: {str(decode_error)}")
+                    logger.error(f"Full error details: {decode_error}", exc_info=True)
+                    raise  # Re-raise to be caught by outer exception handler
+
                 tms_user_id = token_payload.get('id')  # NextAuth token contains 'id' as TMS user ID
 
                 if not tms_user_id:
-                    logger.warning(f"Connection rejected - invalid token: {sid}")
+                    logger.warning(f"Connection rejected - invalid token payload (no id): {sid}")
+                    logger.warning(f"Token payload keys: {list(token_payload.keys())}")
                     return False
 
                 # Get local user ID
@@ -116,7 +127,8 @@ class ConnectionManager:
                     return True
 
             except Exception as e:
-                logger.error(f"Connection error: {e}")
+                logger.error(f"Connection error: {type(e).__name__}: {str(e)}")
+                logger.error(f"Full connection error details:", exc_info=True)
                 return False
 
         @self.sio.event
