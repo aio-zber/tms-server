@@ -195,10 +195,17 @@ class ConnectionManager:
             Expected data: {'conversation_id': 'uuid'}
             """
             try:
+                logger.info(f"[join_conversation] Received data: {data}")
+                logger.info(f"[join_conversation] SID: {sid}")
+
                 conversation_id = UUID(data['conversation_id'])
+                logger.info(f"[join_conversation] Parsed conversation_id: {conversation_id}")
+
                 user_id = self.connections.get(sid)
+                logger.info(f"[join_conversation] User ID from connection: {user_id}")
 
                 if not user_id:
+                    logger.warning(f"[join_conversation] User not authenticated - sid: {sid}")
                     await self.sio.emit('error', {
                         'message': 'Unauthorized'
                     }, to=sid)
@@ -217,22 +224,27 @@ class ConnectionManager:
                         )
                     )
                     member = result.scalar_one_or_none()
+                    logger.info(f"[join_conversation] ConversationMember found: {member is not None}")
 
                     if not member:
+                        logger.warning(f"[join_conversation] User {user_id} not a member of conversation {conversation_id}")
                         await self.sio.emit('error', {
                             'message': 'Not a member of this conversation'
                         }, to=sid)
                         return
 
                 # Join Socket.IO room
-                await self.sio.enter_room(sid, f"conversation:{conversation_id}")
+                room_name = f"conversation:{conversation_id}"
+                logger.info(f"[join_conversation] Joining Socket.IO room: {room_name}")
+                await self.sio.enter_room(sid, room_name)
 
                 # Track in conversation rooms
                 if conversation_id not in self.conversation_rooms:
                     self.conversation_rooms[conversation_id] = set()
                 self.conversation_rooms[conversation_id].add(sid)
 
-                logger.info(f"User {user_id} joined conversation {conversation_id}")
+                logger.info(f"[join_conversation] SUCCESS: User {user_id} joined conversation {conversation_id}")
+                logger.info(f"[join_conversation] Active rooms for conversation {conversation_id}: {len(self.conversation_rooms[conversation_id])} members")
 
                 await self.sio.emit('joined_conversation', {
                     'conversation_id': str(conversation_id)
@@ -327,7 +339,15 @@ class ConnectionManager:
             sender_sid: Optional sender SID to skip
         """
         room = f"conversation:{conversation_id}"
+        room_members = self.conversation_rooms.get(conversation_id, set())
+
+        logger.info(f"[broadcast_new_message] Broadcasting to room: {room}")
+        logger.info(f"[broadcast_new_message] Active members in room: {len(room_members)}")
+        logger.info(f"[broadcast_new_message] Message ID: {message_data.get('id')}")
+        logger.info(f"[broadcast_new_message] Sender ID: {message_data.get('sender_id')}")
+
         await self.sio.emit('new_message', message_data, room=room, skip_sid=sender_sid)
+        logger.info(f"[broadcast_new_message] Message broadcasted successfully")
 
     async def broadcast_message_edited(
         self,
