@@ -140,20 +140,20 @@ async def websocket_health_check():
         status_code=200,
         content={
             "status": "configured",
-            "websocket_endpoint": "/ws/socket.io/",
+            "websocket_endpoint": "/socket.io/",
             "active_connections": len(connection_manager.connections),
             "active_users": len(connection_manager.user_sessions),
             "active_conversations": len(connection_manager.conversation_rooms),
             "config": {
                 "transports": ["websocket"],
-                "path": "/ws/socket.io",
+                "path": "/socket.io",
                 "cors_origins": settings.allowed_origins,
                 "heartbeat_interval": settings.ws_heartbeat_interval,
                 "max_connections": settings.ws_max_connections,
             },
             "client_config": {
                 "url": "wss://tms-server-staging.up.railway.app" if not settings.is_development else "ws://localhost:8000",
-                "path": "/ws/socket.io",
+                "path": "/socket.io",
                 "transports": ["websocket"],
                 "upgrade": False,
             }
@@ -188,12 +188,14 @@ app.include_router(
     tags=["Authentication"]
 )
 
-# Mount WebSocket - Socket.IO ASGI app at /ws prefix
-# Client connects to: wss://domain/ws/socket.io/?EIO=4&transport=websocket
+# Wrap FastAPI with Socket.IO
+# According to python-socketio docs, Socket.IO should wrap the ASGI app, not be mounted inside it
+# This creates a combined ASGI app where Socket.IO handles /socket.io/* and FastAPI handles everything else
 from app.core.websocket import connection_manager
 
-# Get Socket.IO ASGI app (returns socketio.ASGIApp instance)
-sio_app = connection_manager.get_asgi_app()
+# Save reference to FastAPI app (for testing/debugging)
+fastapi_app = app
 
-# Mount at /ws - Socket.IO will handle /ws/socket.io/* internally
-app.mount('/ws', sio_app)
+# Wrap FastAPI inside Socket.IO ASGIApp - this becomes the final ASGI app
+# Client connects to: wss://domain/socket.io/?EIO=4&transport=websocket
+app = connection_manager.get_asgi_app(fastapi_app)

@@ -428,19 +428,21 @@ class ConnectionManager:
             'emoji': emoji
         }, room=room)
 
-    def get_asgi_app(self):
+    def get_asgi_app(self, fastapi_app):
         """
-        Get the ASGI app for Socket.IO.
+        Get the ASGI app for Socket.IO wrapping FastAPI.
+
+        Args:
+            fastapi_app: FastAPI application instance
 
         Returns:
-            Socket.IO ASGI app configured for Railway
+            Socket.IO ASGI app with FastAPI wrapped inside
 
-        Critical: When using app.mount('/ws', sio_app):
-        - Client connects to: /ws/socket.io/
-        - FastAPI mounts sio_app at '/ws'
-        - Socket.IO's default socketio_path is 'socket.io' (without leading slash)
-        - This means Socket.IO listens at the mount point + socketio_path
-        - Final URL: /ws/socket.io/
+        Critical: According to python-socketio docs, correct pattern is:
+        - app = socketio.ASGIApp(sio, other_asgi_app)
+        - Socket.IO wraps FastAPI, not the other way around
+        - Client connects to: /socket.io/?EIO=4&transport=websocket
+        - socketio_path defaults to 'socket.io' (correct)
 
         Note: python-socketio 5.12.0 ASGIApp doesn't support engineio_options.
         WebSocket-only mode is enforced client-side via Socket.IO client config:
@@ -449,7 +451,8 @@ class ConnectionManager:
         """
         return socketio.ASGIApp(
             self.sio,
-            socketio_path='socket.io',  # Default path (no leading slash for mounted apps)
+            other_asgi_app=fastapi_app,
+            socketio_path='socket.io',  # Default Socket.IO path
         )
 
 
