@@ -50,12 +50,12 @@ class Settings(BaseSettings):
     jwt_expiration_hours: int = Field(default=24, description="JWT expiration time in hours")
     nextauth_secret: str = Field(..., min_length=32, description="NextAuth secret key from GCGC TMS (same as NEXTAUTH_SECRET)")
 
-    # CORS
-    allowed_origins: str = Field(
+    # CORS (will be converted to list by validator)
+    allowed_origins: List[str] = Field(
         default="http://localhost:3000",
         description="Comma-separated list of allowed CORS origins"
     )
-    allowed_hosts: str = Field(
+    allowed_hosts: List[str] = Field(
         default="localhost,127.0.0.1",
         description="Comma-separated list of allowed hosts"
     )
@@ -95,23 +95,35 @@ class Settings(BaseSettings):
     sentry_dsn: str = Field(default="", description="Sentry DSN for error tracking")
     sentry_environment: str = Field(default="development", description="Sentry environment")
 
-    @field_validator("allowed_origins")
+    @field_validator("allowed_origins", mode="before")
     @classmethod
-    def parse_cors_origins(cls, v: str) -> List[str]:
+    def parse_cors_origins(cls, v) -> List[str]:
         """Parse comma-separated CORS origins into a list."""
-        return [origin.strip() for origin in v.split(",") if origin.strip()]
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        return ["http://localhost:3000"]
 
-    @field_validator("allowed_hosts")
+    @field_validator("allowed_hosts", mode="before")
     @classmethod
-    def parse_allowed_hosts(cls, v: str) -> List[str]:
+    def parse_allowed_hosts(cls, v) -> List[str]:
         """Parse comma-separated allowed hosts into a list."""
-        return [host.strip() for host in v.split(",") if host.strip()]
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            return [host.strip() for host in v.split(",") if host.strip()]
+        return ["localhost", "127.0.0.1"]
 
-    @field_validator("allowed_file_types")
+    @field_validator("allowed_file_types", mode="before")
     @classmethod
-    def parse_file_types(cls, v: str) -> List[str]:
+    def parse_file_types(cls, v) -> List[str]:
         """Parse comma-separated file types into a list."""
-        return [file_type.strip() for file_type in v.split(",") if file_type.strip()]
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            return [file_type.strip() for file_type in v.split(",") if file_type.strip()]
+        return ["image/jpeg", "image/png", "image/gif", "application/pdf"]
 
     @property
     def is_production(self) -> bool:

@@ -40,9 +40,13 @@ app = FastAPI(
 
 # CORS Middleware
 # Note: For WebSocket connections, CORS is handled by Socket.IO itself (via cors_allowed_origins)
+# Ensure allowed_origins is a list for CORS middleware
+cors_origins = settings.allowed_origins if isinstance(settings.allowed_origins, list) else [settings.allowed_origins]
+print(f"🌐 CORS allowed origins: {cors_origins}")  # Debug log
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.allowed_origins,
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
