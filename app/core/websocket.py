@@ -421,7 +421,12 @@ class ConnectionManager:
         Args:
             app: FastAPI application instance
         """
-        app.mount('/ws', self.get_asgi_app())
+        # Create Socket.IO ASGI app with socket_path
+        sio_asgi_app = socketio.ASGIApp(
+            self.sio,
+            socketio_path='socket.io'  # This makes it accessible at /ws/socket.io
+        )
+        app.mount('/ws', sio_asgi_app)
 
 
 # Global connection manager instance
