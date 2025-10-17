@@ -5,8 +5,10 @@ Provides endpoints for sending, retrieving, editing, and managing messages.
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.core.database import get_db
 from app.dependencies import get_current_user, get_pagination_params
@@ -25,6 +27,7 @@ from app.schemas.message import (
 from app.services.message_service import MessageService
 
 router = APIRouter()
+limiter = Limiter(key_func=get_remote_address)
 
 
 @router.post(
@@ -34,7 +37,9 @@ router = APIRouter()
     summary="Send a new message",
     description="Send a new message to a conversation. User must be a member of the conversation."
 )
+@limiter.limit("30/minute")  # Max 30 messages per minute per user
 async def send_message(
+    request: Request,
     message_data: MessageCreate,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -214,7 +219,9 @@ async def delete_message(
     summary="Add a reaction to a message",
     description="Add an emoji reaction to a message."
 )
+@limiter.limit("60/minute")  # Max 60 reactions per minute
 async def add_reaction(
+    request: Request,
     message_id: UUID,
     reaction_data: MessageReactionCreate,
     current_user: dict = Depends(get_current_user),
