@@ -841,3 +841,48 @@ class MessageService:
                 )
 
         return enriched_messages
+
+    async def clear_conversation(
+        self,
+        conversation_id: UUID,
+        user_id: UUID
+    ) -> int:
+        """
+        Clear all messages in a conversation (soft delete).
+
+        Args:
+            conversation_id: Conversation UUID
+            user_id: Requesting user UUID
+
+        Returns:
+            Number of messages deleted
+
+        Raises:
+            HTTPException: If no access to conversation
+        """
+        # Verify user has access
+        if not await self._verify_conversation_membership(conversation_id, user_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have access to this conversation"
+            )
+
+        # Soft delete all messages in the conversation
+        from sqlalchemy import update
+        from app.models.message import Message
+        
+        # Update all non-deleted messages to set deleted_at
+        result = await self.db.execute(
+            update(Message)
+            .where(
+                and_(
+                    Message.conversation_id == conversation_id,
+                    Message.deleted_at.is_(None)
+                )
+            )
+            .values(deleted_at=datetime.utcnow())
+        )
+
+        await self.db.commit()
+        
+        return result.rowcount
