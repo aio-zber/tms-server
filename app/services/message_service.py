@@ -206,6 +206,7 @@ class MessageService:
 
         # Validate reply_to message if provided
         if reply_to_id:
+            print(f"[MESSAGE_SERVICE] 🔗 Validating reply_to_id: {reply_to_id}")
             parent_message = await self.message_repo.get(reply_to_id)
             if not parent_message:
                 raise HTTPException(
@@ -217,8 +218,10 @@ class MessageService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Parent message is from different conversation"
                 )
+            print(f"[MESSAGE_SERVICE] ✅ Reply validation passed for message {reply_to_id}")
 
         # Create message
+        print(f"[MESSAGE_SERVICE] 📝 Creating message with reply_to_id: {reply_to_id}")
         message = await self.message_repo.create(
             conversation_id=conversation_id,
             sender_id=sender_id,
@@ -227,6 +230,7 @@ class MessageService:
             metadata_json=metadata_json or {},
             reply_to_id=reply_to_id
         )
+        print(f"[MESSAGE_SERVICE] ✅ Message created: id={message.id}, reply_to_id={message.reply_to_id}")
 
         # Get conversation members for status tracking
         result = await self.db.execute(
