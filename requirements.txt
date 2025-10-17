@@ -1,6 +1,7 @@
 # FastAPI Web Framework
 fastapi==0.115.5
 uvicorn[standard]==0.32.1
+slowapi==0.1.9  # Rate limiting
 
 # Database - SQLAlchemy 2.0 with async support
 sqlalchemy==2.0.36

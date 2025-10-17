@@ -3,9 +3,12 @@ FastAPI Application Entry Point.
 Initializes the FastAPI app with middleware, CORS, and routes.
 """
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from app.config import settings
 from app.core.cache import cache
@@ -27,6 +30,10 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 
+# Initialize rate limiter
+limiter = Limiter(key_func=get_remote_address)
+
+
 # Initialize FastAPI application
 app = FastAPI(
     title="TMS Messaging Server",
@@ -36,6 +43,10 @@ app = FastAPI(
     redoc_url="/redoc" if settings.debug else None,
     lifespan=lifespan,
 )
+
+# Add rate limiter state and error handler
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 # CORS Middleware
