@@ -465,11 +465,26 @@ class MessageService:
 
             # Handle reply_to enrichment (recursive)
             if message.reply_to:
+                print(f"[MESSAGE_SERVICE] ✅ Message {message.id} has reply_to: {message.reply_to.id}")
                 # For replied messages, use individual enrichment
                 # (these are typically 1-2 messages, not worth batch optimization)
-                message_dict["reply_to"] = await self._enrich_message_with_user_data(
-                    message.reply_to
-                )
+                try:
+                    message_dict["reply_to"] = await self._enrich_message_with_user_data(
+                        message.reply_to
+                    )
+                    print(f"[MESSAGE_SERVICE] ✅ Successfully enriched reply_to for message {message.id}")
+                except Exception as e:
+                    print(f"[MESSAGE_SERVICE] ❌ Failed to enrich reply_to: {e}")
+                    # Fallback: Include basic reply_to info
+                    message_dict["reply_to"] = {
+                        "id": str(message.reply_to.id),
+                        "content": message.reply_to.content,
+                        "sender_id": str(message.reply_to.sender_id),
+                        "created_at": message.reply_to.created_at
+                    }
+            else:
+                if message.reply_to_id:
+                    print(f"[MESSAGE_SERVICE] ⚠️ Message {message.id} has reply_to_id but reply_to is None! (Lazy load failed)")
 
             enriched_messages.append(message_dict)
 
