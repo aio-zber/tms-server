@@ -67,7 +67,8 @@ class MessageRepository(BaseRepository[Message]):
             .options(
                 selectinload(Message.sender),
                 selectinload(Message.reactions),
-                selectinload(Message.statuses)
+                selectinload(Message.statuses),
+                selectinload(Message.reply_to)
             )
             .where(Message.conversation_id == conversation_id)
         )
