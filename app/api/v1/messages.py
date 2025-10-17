@@ -341,7 +341,13 @@ async def get_conversation_messages(
     )
 
     # Convert enriched dict messages to Pydantic models for proper serialization
-    message_responses = [MessageResponse(**msg) for msg in messages]
+    # Need to handle nested reply_to manually since Pydantic doesn't auto-convert nested dicts
+    message_responses = []
+    for msg in messages:
+        # Convert nested reply_to dict to MessageResponse if present
+        if msg.get('reply_to'):
+            msg['reply_to'] = MessageResponse(**msg['reply_to'])
+        message_responses.append(MessageResponse(**msg))
 
     return MessageListResponse(
         data=message_responses,
