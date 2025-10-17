@@ -98,13 +98,23 @@ class ConversationService:
             # Fetch user data from TMS
             if member.user:
                 try:
+                    print(f"[CONVERSATION_SERVICE] Fetching TMS user data for: {member.user.tms_user_id}")
                     user_data = await tms_client.get_user(
                         member.user.tms_user_id,
                         use_cache=True
                     )
+                    print(f"[CONVERSATION_SERVICE] ✅ Got TMS user data: {user_data.get('email', 'N/A')}")
                     member_dict["user"] = user_data
-                except TMSAPIException:
+                except TMSAPIException as e:
                     # Fallback to basic user info
+                    print(f"[CONVERSATION_SERVICE] ❌ TMS API failed: {str(e)}")
+                    member_dict["user"] = {
+                        "id": str(member.user_id),
+                        "tms_user_id": member.user.tms_user_id
+                    }
+                except Exception as e:
+                    # Catch all other exceptions
+                    print(f"[CONVERSATION_SERVICE] ❌ Unexpected error: {type(e).__name__}: {str(e)}")
                     member_dict["user"] = {
                         "id": str(member.user_id),
                         "tms_user_id": member.user.tms_user_id
