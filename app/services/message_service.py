@@ -344,7 +344,7 @@ class MessageService:
         self,
         conversation_id: UUID,
         user_id: UUID,
-        limit: int = 50,
+        limit: int = 10,
         cursor: Optional[UUID] = None
     ) -> Tuple[List[Dict[str, Any]], Optional[UUID], bool]:
         """
