@@ -286,10 +286,23 @@ class MessageService:
         broadcast_message = convert_to_json_serializable(enriched_message)
 
         # Broadcast new message via WebSocket
-        await self.ws_manager.broadcast_new_message(
-            conversation_id,
-            broadcast_message
-        )
+        try:
+            print(f"[MESSAGE_SERVICE] About to broadcast message: {message.id}")
+            print(f"[MESSAGE_SERVICE] Conversation ID: {conversation_id}")
+            print(f"[MESSAGE_SERVICE] WebSocket manager: {self.ws_manager}")
+            
+            await self.ws_manager.broadcast_new_message(
+                conversation_id,
+                broadcast_message
+            )
+            
+            print(f"[MESSAGE_SERVICE] ✅ Broadcast completed for message: {message.id}")
+        except Exception as broadcast_error:
+            print(f"[MESSAGE_SERVICE] ❌ Broadcast failed: {type(broadcast_error).__name__}: {str(broadcast_error)}")
+            import traceback
+            print(traceback.format_exc())
+            # Don't fail the message send if broadcast fails
+            pass
 
         return enriched_message
 
