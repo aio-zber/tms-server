@@ -99,7 +99,8 @@ class ConversationService:
             if member.user:
                 try:
                     print(f"[CONVERSATION_SERVICE] Fetching TMS user data for: {member.user.tms_user_id}")
-                    user_data = await tms_client.get_user(
+                    # Use API Key authentication for server-to-server calls (PREFERRED METHOD)
+                    user_data = await tms_client.get_user_by_id_with_api_key(
                         member.user.tms_user_id,
                         use_cache=True
                     )
