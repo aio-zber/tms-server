@@ -408,6 +408,15 @@ class MessageService:
 
         # Enrich messages with pre-fetched user data
         print(f"[MESSAGE_SERVICE] 🔄 Starting message enrichment loop for {len(messages)} messages")
+        
+        # DEBUG: Count how many messages have reply_to_id vs reply_to loaded
+        messages_with_reply_id = [m for m in messages if m.reply_to_id]
+        messages_with_reply_loaded = [m for m in messages if m.reply_to]
+        print(f"[MESSAGE_SERVICE] 📊 Messages with reply_to_id: {len(messages_with_reply_id)}")
+        print(f"[MESSAGE_SERVICE] 📊 Messages with reply_to loaded: {len(messages_with_reply_loaded)}")
+        if messages_with_reply_id:
+            print(f"[MESSAGE_SERVICE] 📋 Message IDs with reply_to_id: {[str(m.id)[:8] for m in messages_with_reply_id]}")
+        
         enriched_messages = []
         for message in messages:
             message_dict = {
