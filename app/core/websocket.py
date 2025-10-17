@@ -368,61 +368,32 @@ class ConnectionManager:
         Args:
             conversation_id: Conversation UUID
             message_data: Message data to broadcast
-            sender_sid: Optional sender SID to skip
+            sender_sid: Optional sender SID to skip (not used - we send to everyone including sender)
         """
         room = f"conversation:{conversation_id}"
-        room_members = self.conversation_rooms.get(conversation_id, set())
 
-        logger.info(f"[broadcast_new_message] Broadcasting to room: {room}")
-        logger.info(f"[broadcast_new_message] Active members in room: {len(room_members)}")
+        logger.info(f"[broadcast_new_message] Broadcasting message to room: {room}")
         logger.info(f"[broadcast_new_message] Message ID: {message_data.get('id')}")
-        logger.info(f"[broadcast_new_message] Sender ID: {message_data.get('sender_id')}")
-
-        # Log all Socket.IO rooms and their members for debugging
+        
+        # Count actual Socket.IO room members (more reliable than internal tracking)
+        actual_member_count = 0
         try:
             namespace = '/'
-            logger.info(f"[broadcast_new_message] Checking Socket.IO manager...")
-            logger.info(f"[broadcast_new_message] Manager type: {type(self.sio.manager)}")
-            logger.info(f"[broadcast_new_message] Has 'rooms' attr: {hasattr(self.sio.manager, 'rooms')}")
-            
-            if hasattr(self.sio.manager, 'rooms'):
-                logger.info(f"[broadcast_new_message] manager.rooms type: {type(self.sio.manager.rooms)}")
-                logger.info(f"[broadcast_new_message] manager.rooms content: {self.sio.manager.rooms}")
-                logger.info(f"[broadcast_new_message] Namespaces in manager.rooms: {list(self.sio.manager.rooms.keys()) if self.sio.manager.rooms else 'None'}")
-                
-                if namespace in self.sio.manager.rooms:
-                    namespace_rooms = self.sio.manager.rooms[namespace]
-                    logger.info(f"[broadcast_new_message] namespace_rooms type: {type(namespace_rooms)}")
-                    if namespace_rooms:
-                        logger.info(f"[broadcast_new_message] Total Socket.IO rooms in namespace: {len(namespace_rooms)}")
-                        logger.info(f"[broadcast_new_message] Sample rooms: {list(namespace_rooms.keys())[:5]}")
-                        
-                        if room in namespace_rooms:
-                            logger.info(f"[broadcast_new_message] ✅ Room '{room}' EXISTS in Socket.IO manager")
-                            logger.info(f"[broadcast_new_message] SIDs in target room '{room}': {namespace_rooms[room]}")
-                        else:
-                            logger.warning(f"[broadcast_new_message] ⚠️  Room '{room}' does NOT exist in Socket.IO manager!")
-                            logger.warning(f"[broadcast_new_message] Searching for similar rooms...")
-                            matching_rooms = [r for r in namespace_rooms.keys() if 'conversation:' in str(r)]
-                            logger.warning(f"[broadcast_new_message] Found {len(matching_rooms)} conversation rooms: {matching_rooms[:3]}")
-                    else:
-                        logger.error(f"[broadcast_new_message] namespace_rooms is None or empty!")
+            if hasattr(self.sio.manager, 'rooms') and namespace in self.sio.manager.rooms:
+                namespace_rooms = self.sio.manager.rooms[namespace]
+                if room in namespace_rooms:
+                    actual_member_count = len(namespace_rooms[room])
+                    logger.info(f"[broadcast_new_message] ✅ Room has {actual_member_count} connected client(s)")
                 else:
-                    logger.error(f"[broadcast_new_message] Namespace '/' not found in manager.rooms!")
-                    logger.error(f"[broadcast_new_message] Available namespaces: {list(self.sio.manager.rooms.keys())}")
-            else:
-                logger.error(f"[broadcast_new_message] Socket.IO manager has no 'rooms' attribute!")
+                    logger.warning(f"[broadcast_new_message] ⚠️  Room '{room}' not found in Socket.IO manager")
         except Exception as e:
-            logger.error(f"[broadcast_new_message] Error checking rooms: {e}", exc_info=True)
+            logger.error(f"[broadcast_new_message] Error checking room members: {e}")
         
-        # Broadcast the message
-        await self.sio.emit('new_message', message_data, room=room, skip_sid=sender_sid)
-        logger.info(f"[broadcast_new_message] ✅ Message emitted to Socket.IO room: {room}")
-        
-        # Verify our internal tracking matches Socket.IO
-        if len(room_members) == 0:
-            logger.warning(f"[broadcast_new_message] ⚠️  WARNING: No members in our internal tracking for {room}!")
-            logger.warning(f"[broadcast_new_message] This message may not be received by anyone!")
+        # Broadcast the message to everyone in the room (including sender)
+        # The sender_sid parameter is ignored - we want all clients to receive the message
+        # The sender's client will use optimistic updates to show the message immediately
+        await self.sio.emit('new_message', message_data, room=room)
+        logger.info(f"[broadcast_new_message] ✅ Message broadcast completed")
 
     async def broadcast_message_edited(
         self,
