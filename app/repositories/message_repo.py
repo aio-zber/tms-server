@@ -102,9 +102,17 @@ class MessageRepository(BaseRepository[Message]):
         # This ensures consistent order even when messages have identical timestamps
         query = query.order_by(desc(Message.created_at), desc(Message.id)).limit(limit + 1)
 
+        print(f"[MESSAGE_REPO] 🔍 Fetching messages for conversation: {conversation_id}")
+        print(f"[MESSAGE_REPO] 🔍 Limit: {limit}, Cursor: {cursor}, Include deleted: {include_deleted}")
+        
         result = await self.db.execute(query)
         messages = list(result.scalars().all())
 
+        print(f"[MESSAGE_REPO] 📊 Query returned {len(messages)} messages")
+        if messages:
+            print(f"[MESSAGE_REPO] 📊 First message: id={messages[0].id}, content='{messages[0].content[:30]}...', created_at={messages[0].created_at}")
+            print(f"[MESSAGE_REPO] 📊 Last message: id={messages[-1].id}, content='{messages[-1].content[:30]}...', created_at={messages[-1].created_at}")
+        
         # Check if there are more messages
         has_more = len(messages) > limit
         if has_more:
@@ -113,6 +121,7 @@ class MessageRepository(BaseRepository[Message]):
         # Get next cursor (ID of last message)
         next_cursor = messages[-1].id if messages and has_more else None
 
+        print(f"[MESSAGE_REPO] ✅ Returning {len(messages)} messages, has_more={has_more}, next_cursor={next_cursor}")
         return messages, next_cursor, has_more
 
     async def search_messages(

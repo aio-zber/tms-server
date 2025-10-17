@@ -239,7 +239,9 @@ class MessageService:
             metadata_json=metadata_json or {},
             reply_to_id=reply_to_id
         )
-        print(f"[MESSAGE_SERVICE] ✅ Message created: id={message.id}, reply_to_id={message.reply_to_id}")
+        print(f"[MESSAGE_SERVICE] ✅ Message created: id={message.id}, content='{content}', reply_to_id={message.reply_to_id}")
+        print(f"[MESSAGE_SERVICE] 📅 Message timestamps: created_at={message.created_at}, updated_at={message.updated_at}")
+        print(f"[MESSAGE_SERVICE] 🗑️ Message deleted_at: {message.deleted_at}")
 
         # Get conversation members for status tracking
         result = await self.db.execute(
