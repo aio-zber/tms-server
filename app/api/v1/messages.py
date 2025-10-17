@@ -560,3 +560,48 @@ async def search_messages(
             "has_more": len(messages) >= search_data.limit
         }
     }
+
+
+@router.delete(
+    "/conversations/{conversation_id}/clear",
+    response_model=dict,
+    summary="Clear conversation messages",
+    description="Soft delete all messages in a conversation for the current user."
+)
+async def clear_conversation(
+    conversation_id: UUID,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Clear all messages in a conversation (soft delete).
+
+    - **conversation_id**: UUID of the conversation
+    """
+    service = MessageService(db)
+
+    # Get user_id from local user record
+    from app.models.user import User
+    from sqlalchemy import select
+
+    result = await db.execute(
+        select(User).where(User.tms_user_id == current_user["tms_user_id"])
+    )
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found in local database"
+        )
+
+    deleted_count = await service.clear_conversation(
+        conversation_id=conversation_id,
+        user_id=user.id
+    )
+
+    return {
+        "success": True,
+        "message": f"Cleared {deleted_count} messages from conversation",
+        "deleted_count": deleted_count
+    }
