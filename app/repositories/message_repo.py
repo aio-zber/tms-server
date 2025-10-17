@@ -81,10 +81,20 @@ class MessageRepository(BaseRepository[Message]):
         if cursor:
             cursor_msg = await self.get(cursor)
             if cursor_msg:
-                query = query.where(Message.created_at < cursor_msg.created_at)
+                # For stable pagination with identical timestamps, use both created_at and id
+                query = query.where(
+                    or_(
+                        Message.created_at < cursor_msg.created_at,
+                        and_(
+                            Message.created_at == cursor_msg.created_at,
+                            Message.id < cursor_msg.id
+                        )
+                    )
+                )
 
-        # Order by created_at descending (newest first)
-        query = query.order_by(desc(Message.created_at)).limit(limit + 1)
+        # Order by created_at descending (newest first), then by id for stable ordering
+        # This ensures consistent order even when messages have identical timestamps
+        query = query.order_by(desc(Message.created_at), desc(Message.id)).limit(limit + 1)
 
         result = await self.db.execute(query)
         messages = list(result.scalars().all())
