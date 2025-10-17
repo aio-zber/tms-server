@@ -372,6 +372,10 @@ class ConnectionManager:
         """
         room = f"conversation:{conversation_id}"
 
+        print(f"🔔 [BROADCAST] START - Broadcasting to room: {room}")
+        print(f"🔔 [BROADCAST] Message ID: {message_data.get('id')}")
+        print(f"🔔 [BROADCAST] Message content: {message_data.get('content')}")
+        
         logger.info(f"[broadcast_new_message] Broadcasting message to room: {room}")
         logger.info(f"[broadcast_new_message] Message ID: {message_data.get('id')}")
         
@@ -383,16 +387,21 @@ class ConnectionManager:
                 namespace_rooms = self.sio.manager.rooms[namespace]
                 if room in namespace_rooms:
                     actual_member_count = len(namespace_rooms[room])
+                    print(f"🔔 [BROADCAST] ✅ Room has {actual_member_count} connected client(s)")
+                    print(f"🔔 [BROADCAST] SIDs in room: {namespace_rooms[room]}")
                     logger.info(f"[broadcast_new_message] ✅ Room has {actual_member_count} connected client(s)")
                 else:
+                    print(f"🔔 [BROADCAST] ⚠️  Room '{room}' not found in Socket.IO manager")
+                    print(f"🔔 [BROADCAST] Available rooms: {list(namespace_rooms.keys())[:5]}")
                     logger.warning(f"[broadcast_new_message] ⚠️  Room '{room}' not found in Socket.IO manager")
         except Exception as e:
+            print(f"🔔 [BROADCAST] ❌ Error checking room members: {e}")
             logger.error(f"[broadcast_new_message] Error checking room members: {e}")
         
         # Broadcast the message to everyone in the room (including sender)
-        # The sender_sid parameter is ignored - we want all clients to receive the message
-        # The sender's client will use optimistic updates to show the message immediately
+        print(f"🔔 [BROADCAST] Emitting 'new_message' event to room: {room}")
         await self.sio.emit('new_message', message_data, room=room)
+        print(f"🔔 [BROADCAST] ✅ Message broadcast completed")
         logger.info(f"[broadcast_new_message] ✅ Message broadcast completed")
 
     async def broadcast_message_edited(
