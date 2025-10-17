@@ -347,12 +347,22 @@ async def get_conversation_messages(
         cursor=cursor
     )
 
+    # Debug: Check reply_to data
+    print(f"[API] Fetched {len(messages)} messages")
+    for msg in messages:
+        if msg.get('reply_to_id'):
+            print(f"[API] Message {msg['id']} has reply_to_id: {msg['reply_to_id']}")
+            print(f"[API] Message reply_to object present: {msg.get('reply_to') is not None}")
+            if msg.get('reply_to'):
+                print(f"[API] reply_to data: {msg['reply_to'].keys() if isinstance(msg['reply_to'], dict) else 'not a dict'}")
+
     # Convert enriched dict messages to Pydantic models for proper serialization
     # Need to handle nested reply_to manually since Pydantic doesn't auto-convert nested dicts
     message_responses = []
     for msg in messages:
         # Convert nested reply_to dict to MessageResponse if present
         if msg.get('reply_to'):
+            print(f"[API] Converting reply_to for message {msg['id']}")
             msg['reply_to'] = MessageResponse(**msg['reply_to'])
         message_responses.append(MessageResponse(**msg))
 
