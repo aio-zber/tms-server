@@ -242,6 +242,16 @@ class MessageService:
         print(f"[MESSAGE_SERVICE] ✅ Message created: id={message.id}, content='{content}', reply_to_id={message.reply_to_id}")
         print(f"[MESSAGE_SERVICE] 📅 Message timestamps: created_at={message.created_at}, updated_at={message.updated_at}")
         print(f"[MESSAGE_SERVICE] 🗑️ Message deleted_at: {message.deleted_at}")
+        print(f"[MESSAGE_SERVICE] 🔍 Message conversation_id: {message.conversation_id}")
+        print(f"[MESSAGE_SERVICE] 🔍 Message sender_id: {message.sender_id}")
+        
+        # CRITICAL DEBUG: Check if created_at is in the past
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        time_diff = (now - message.created_at).total_seconds()
+        print(f"[MESSAGE_SERVICE] ⏰ Time difference from now: {time_diff} seconds")
+        if time_diff > 60:
+            print(f"[MESSAGE_SERVICE] ⚠️⚠️⚠️ WARNING: Message created_at is {time_diff/3600:.2f} hours in the PAST!")
 
         # Get conversation members for status tracking
         result = await self.db.execute(
