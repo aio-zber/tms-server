@@ -275,9 +275,12 @@ class MessageService:
 
         # Commit transaction
         await self.db.commit()
+        print(f"[MESSAGE_SERVICE] ✅ Transaction committed for message {message.id}")
 
         # Reload message with relations
         message = await self.message_repo.get_with_relations(message.id)
+        print(f"[MESSAGE_SERVICE] 🔄 Message reloaded after commit: id={message.id}")
+        print(f"[MESSAGE_SERVICE] 🔄 Reloaded timestamps: created_at={message.created_at}, updated_at={message.updated_at}, deleted_at={message.deleted_at}")
 
         # Enrich with TMS user data
         enriched_message = await self._enrich_message_with_user_data(message)
