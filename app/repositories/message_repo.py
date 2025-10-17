@@ -105,13 +105,33 @@ class MessageRepository(BaseRepository[Message]):
         print(f"[MESSAGE_REPO] 🔍 Fetching messages for conversation: {conversation_id}")
         print(f"[MESSAGE_REPO] 🔍 Limit: {limit}, Cursor: {cursor}, Include deleted: {include_deleted}")
         
+        # DEBUG: Get ALL messages to see total count and timestamps
+        debug_query = (
+            select(Message)
+            .where(Message.conversation_id == conversation_id)
+        )
+        if not include_deleted:
+            debug_query = debug_query.where(Message.deleted_at.is_(None))
+        debug_query = debug_query.order_by(desc(Message.created_at), desc(Message.id))
+        
+        debug_result = await self.db.execute(debug_query)
+        all_messages = list(debug_result.scalars().all())
+        print(f"[MESSAGE_REPO] 📊 TOTAL messages in DB (non-deleted): {len(all_messages)}")
+        if all_messages:
+            print(f"[MESSAGE_REPO] 📊 Newest message: id={all_messages[0].id}, content='{all_messages[0].content[:30] if all_messages[0].content else 'NULL'}...', created_at={all_messages[0].created_at}")
+            print(f"[MESSAGE_REPO] 📊 Oldest message: id={all_messages[-1].id}, content='{all_messages[-1].content[:30] if all_messages[-1].content else 'NULL'}...', created_at={all_messages[-1].created_at}")
+            # Show all message IDs and timestamps for debugging
+            print(f"[MESSAGE_REPO] 📊 All message timestamps:")
+            for idx, msg in enumerate(all_messages):
+                print(f"  [{idx}] id={msg.id}, created_at={msg.created_at}, deleted_at={msg.deleted_at}, content='{msg.content[:20] if msg.content else 'NULL'}...'")
+        
         result = await self.db.execute(query)
         messages = list(result.scalars().all())
 
-        print(f"[MESSAGE_REPO] 📊 Query returned {len(messages)} messages")
+        print(f"[MESSAGE_REPO] 📊 Query returned {len(messages)} messages (with limit={limit+1})")
         if messages:
-            print(f"[MESSAGE_REPO] 📊 First message: id={messages[0].id}, content='{messages[0].content[:30]}...', created_at={messages[0].created_at}")
-            print(f"[MESSAGE_REPO] 📊 Last message: id={messages[-1].id}, content='{messages[-1].content[:30]}...', created_at={messages[-1].created_at}")
+            print(f"[MESSAGE_REPO] 📊 First returned: id={messages[0].id}, content='{messages[0].content[:30] if messages[0].content else 'NULL'}...', created_at={messages[0].created_at}")
+            print(f"[MESSAGE_REPO] 📊 Last returned: id={messages[-1].id}, content='{messages[-1].content[:30] if messages[-1].content else 'NULL'}...', created_at={messages[-1].created_at}")
         
         # Check if there are more messages
         has_more = len(messages) > limit
