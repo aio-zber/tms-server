@@ -168,12 +168,26 @@ class MessageService:
             print(f"[ENRICH] Message {message.id} has reply_to_id: {message.reply_to_id}")
             print(f"[ENRICH] message.reply_to object loaded: {message.reply_to is not None}")
             if message.reply_to:
-                print(f"[ENRICH] Recursively enriching reply_to message: {message.reply_to.id}")
-                message_dict["reply_to"] = await self._enrich_message_with_user_data(
-                    message.reply_to
-                )
+                try:
+                    print(f"[ENRICH] Recursively enriching reply_to message: {message.reply_to.id}")
+                    message_dict["reply_to"] = await self._enrich_message_with_user_data(
+                        message.reply_to
+                    )
+                except Exception as e:
+                    print(f"[MESSAGE_SERVICE] ❌ Failed to enrich reply_to: {e}")
+                    # Fallback: return minimal reply_to info without enrichment
+                    message_dict["reply_to"] = {
+                        "id": str(message.reply_to.id),
+                        "conversation_id": str(message.reply_to.conversation_id),
+                        "sender_id": str(message.reply_to.sender_id),
+                        "content": message.reply_to.content,
+                        "type": message.reply_to.type.value,
+                        "created_at": message.reply_to.created_at.isoformat(),
+                        "is_edited": message.reply_to.is_edited,
+                    }
             else:
                 print(f"[ENRICH] ⚠️ WARNING: reply_to_id exists but reply_to object is None! (MissingGreenlet?)")
+                message_dict["reply_to"] = None
         else:
             # Explicitly set to None if no reply_to_id
             message_dict["reply_to"] = None
