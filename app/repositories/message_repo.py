@@ -46,7 +46,7 @@ class MessageRepository(BaseRepository[Message]):
     async def get_conversation_messages(
         self,
         conversation_id: UUID,
-        limit: int = 50,
+        limit: int = 10,
         cursor: Optional[UUID] = None,
         include_deleted: bool = False
     ) -> Tuple[List[Message], Optional[UUID], bool]:

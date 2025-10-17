@@ -304,7 +304,7 @@ async def remove_reaction(
 )
 async def get_conversation_messages(
     conversation_id: UUID,
-    limit: int = Query(default=50, ge=1, le=100, description="Number of messages to return"),
+    limit: int = Query(default=10, ge=1, le=100, description="Number of messages to return"),
     cursor: Optional[UUID] = Query(None, description="Cursor for pagination (last message ID)"),
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
