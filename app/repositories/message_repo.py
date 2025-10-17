@@ -37,7 +37,10 @@ class MessageRepository(BaseRepository[Message]):
                 selectinload(Message.sender),
                 selectinload(Message.reactions),
                 selectinload(Message.statuses),
-                selectinload(Message.reply_to)
+                # Eager load reply_to AND its nested relationships
+                selectinload(Message.reply_to).selectinload(Message.sender),
+                selectinload(Message.reply_to).selectinload(Message.reactions),
+                selectinload(Message.reply_to).selectinload(Message.statuses),
             )
             .where(Message.id == message_id)
         )
@@ -68,7 +71,10 @@ class MessageRepository(BaseRepository[Message]):
                 selectinload(Message.sender),
                 selectinload(Message.reactions),
                 selectinload(Message.statuses),
-                selectinload(Message.reply_to)
+                # Eager load reply_to AND its nested relationships
+                selectinload(Message.reply_to).selectinload(Message.sender),
+                selectinload(Message.reply_to).selectinload(Message.reactions),
+                selectinload(Message.reply_to).selectinload(Message.statuses),
             )
             .where(Message.conversation_id == conversation_id)
         )
