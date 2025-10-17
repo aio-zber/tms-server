@@ -363,6 +363,8 @@ class MessageService:
         Raises:
             HTTPException: If no access
         """
+        print(f"[MESSAGE_SERVICE] 🚀 get_conversation_messages called for conversation: {conversation_id}, limit: {limit}")
+        
         # Verify user is conversation member
         if not await self._verify_conversation_membership(conversation_id, user_id):
             raise HTTPException(
@@ -377,6 +379,8 @@ class MessageService:
             cursor
         )
 
+        print(f"[MESSAGE_SERVICE] 📦 Fetched {len(messages)} messages from DB")
+        
         if not messages:
             return [], next_cursor, has_more
 
@@ -403,6 +407,7 @@ class MessageService:
                 print(f"Warning: Batch user fetch failed: {e}")
 
         # Enrich messages with pre-fetched user data
+        print(f"[MESSAGE_SERVICE] 🔄 Starting message enrichment loop for {len(messages)} messages")
         enriched_messages = []
         for message in messages:
             message_dict = {
