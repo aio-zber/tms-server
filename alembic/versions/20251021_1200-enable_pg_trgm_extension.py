@@ -34,7 +34,7 @@ def upgrade() -> None:
     # 2. Add GIN index on conversation names for trigram similarity search
     # This dramatically speeds up fuzzy name searches
     op.execute("""
-        CREATE INDEX idx_conversations_name_trgm
+        CREATE INDEX IF NOT EXISTS idx_conversations_name_trgm
         ON conversations
         USING gin (lower(name) gin_trgm_ops)
         WHERE name IS NOT NULL;
@@ -42,14 +42,14 @@ def upgrade() -> None:
 
     # 3. Add GIN index on user first_name for member search
     op.execute("""
-        CREATE INDEX idx_users_first_name_trgm
+        CREATE INDEX IF NOT EXISTS idx_users_first_name_trgm
         ON users
         USING gin (lower(first_name) gin_trgm_ops);
     """)
 
     # 4. Add GIN index on user last_name for member search
     op.execute("""
-        CREATE INDEX idx_users_last_name_trgm
+        CREATE INDEX IF NOT EXISTS idx_users_last_name_trgm
         ON users
         USING gin (lower(last_name) gin_trgm_ops);
     """)
