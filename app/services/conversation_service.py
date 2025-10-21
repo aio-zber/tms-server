@@ -610,3 +610,53 @@ class ConversationService:
             "message": "Conversation marked as read",
             "last_read_at": member.last_read_at
         }
+
+    async def search_conversations(
+        self,
+        user_id: UUID,
+        query: str,
+        limit: int = 20
+    ) -> List[Dict[str, Any]]:
+        """
+        Search conversations by name or member names.
+
+        Implements Telegram/Messenger-style fuzzy search with:
+        - Trigram similarity for typo tolerance
+        - Weighted scoring (60% name, 40% members)
+        - Only returns user's conversations
+
+        Args:
+            user_id: User UUID
+            query: Search query string
+            limit: Maximum results (default 20)
+
+        Returns:
+            List of enriched conversations ordered by relevance
+
+        Raises:
+            HTTPException: If search fails
+        """
+        try:
+            # Search using repository
+            conversations = await self.conversation_repo.search_conversations(
+                user_id=user_id,
+                query=query,
+                limit=limit
+            )
+
+            # Enrich conversations with user data
+            enriched_conversations = []
+            for conversation in conversations:
+                enriched = await self._enrich_conversation_with_user_data(
+                    conversation=conversation,
+                    user_id=user_id
+                )
+                enriched_conversations.append(enriched)
+
+            return enriched_conversations
+
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to search conversations: {str(e)}"
+            )
