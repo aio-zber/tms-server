@@ -32,52 +32,48 @@ def upgrade() -> None:
     # This dramatically speeds up "count unread messages" queries
     # Only indexes rows where status != 'read' (much smaller index)
     op.execute("""
-        CREATE INDEX idx_message_status_user_unread
+        CREATE INDEX IF NOT EXISTS idx_message_status_user_unread
         ON message_status(user_id, message_id)
         WHERE status != 'read';
     """)
 
     # 2. Composite index for efficient status lookups
     # Optimizes queries that check status for specific user+message combinations
-    op.create_index(
-        'idx_message_status_message_user',
-        'message_status',
-        ['message_id', 'user_id', 'status']
-    )
+    op.execute("""
+        CREATE INDEX IF NOT EXISTS idx_message_status_message_user
+        ON message_status(message_id, user_id, status);
+    """)
 
     # 3. Composite index for conversation message queries with pagination
     # Optimizes the common pattern: fetch messages in conversation, ordered by time
     # Includes WHERE deleted_at IS NULL condition as partial index
     op.execute("""
-        CREATE INDEX idx_messages_conversation_created_id
+        CREATE INDEX IF NOT EXISTS idx_messages_conversation_created_id
         ON messages(conversation_id, created_at DESC, id DESC)
         WHERE deleted_at IS NULL;
     """)
 
     # 4. Index for sender lookups (used in message enrichment)
     # Speeds up joining messages with user data
-    op.create_index(
-        'idx_messages_sender_id',
-        'messages',
-        ['sender_id']
-    )
+    op.execute("""
+        CREATE INDEX IF NOT EXISTS idx_messages_sender_id
+        ON messages(sender_id);
+    """)
 
     # 5. Index for reply_to lookups (used in threaded conversations)
     # Speeds up loading replied-to messages
-    op.create_index(
-        'idx_messages_reply_to_id',
-        'messages',
-        ['reply_to_id'],
-        postgresql_where=sa.text('reply_to_id IS NOT NULL')
-    )
+    op.execute("""
+        CREATE INDEX IF NOT EXISTS idx_messages_reply_to_id
+        ON messages(reply_to_id)
+        WHERE reply_to_id IS NOT NULL;
+    """)
 
     # 6. Composite index for conversation members (used in permission checks)
     # Optimizes "is user member of conversation?" queries
-    op.create_index(
-        'idx_conversation_members_user_conversation',
-        'conversation_members',
-        ['user_id', 'conversation_id']
-    )
+    op.execute("""
+        CREATE INDEX IF NOT EXISTS idx_conversation_members_user_conversation
+        ON conversation_members(user_id, conversation_id);
+    """)
 
     print("✅ Performance indexes created successfully")
     print("📊 Optimizations:")

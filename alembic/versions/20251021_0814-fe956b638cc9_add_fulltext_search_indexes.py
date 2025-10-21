@@ -40,17 +40,16 @@ def upgrade() -> None:
 
     # 3. Create GIN index on tsvector column for fast full-text search
     # This enables O(log n) search performance like Telegram
-    op.create_index(
-        'idx_messages_content_tsv',
-        'messages',
-        ['content_tsv'],
-        postgresql_using='gin'
-    )
+    op.execute("""
+        CREATE INDEX IF NOT EXISTS idx_messages_content_tsv
+        ON messages
+        USING GIN (content_tsv);
+    """)
 
     # 4. Create trigram GIN index for fuzzy/partial matching
     # This allows "did you mean?" and partial word matching like Messenger
     op.execute("""
-        CREATE INDEX idx_messages_content_trgm
+        CREATE INDEX IF NOT EXISTS idx_messages_content_trgm
         ON messages
         USING GIN (content gin_trgm_ops);
     """)
@@ -67,6 +66,9 @@ def upgrade() -> None:
     """)
 
     # 6. Create trigger to auto-update tsvector on INSERT/UPDATE
+    op.execute("""
+        DROP TRIGGER IF EXISTS messages_content_tsv_update ON messages;
+    """)
     op.execute("""
         CREATE TRIGGER messages_content_tsv_update
         BEFORE INSERT OR UPDATE ON messages
