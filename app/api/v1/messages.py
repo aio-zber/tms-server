@@ -462,6 +462,54 @@ async def mark_messages_read(
     return result
 
 
+@router.post(
+    "/mark-delivered",
+    response_model=MessageStatusUpdateResponse,
+    summary="Mark messages as delivered",
+    description="Mark all undelivered messages in a conversation as delivered (Telegram/Messenger pattern)."
+)
+async def mark_messages_delivered(
+    request_data: MessageMarkReadRequest,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Mark messages as delivered when user opens conversation.
+
+    Implements Telegram/Messenger pattern:
+    - Automatically called when conversation is opened
+    - Marks all SENT messages as DELIVERED
+    - Does not affect READ messages
+
+    - **conversation_id**: UUID of the conversation
+    - **message_ids**: Optional list of specific message UUIDs (if empty, marks all SENT messages)
+    """
+    service = MessageService(db)
+
+    # Get user_id from local user record
+    from app.models.user import User
+    from sqlalchemy import select
+
+    result = await db.execute(
+        select(User).where(User.tms_user_id == current_user["tms_user_id"])
+    )
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found in local database"
+        )
+
+    result = await service.mark_messages_delivered(
+        conversation_id=request_data.conversation_id,
+        user_id=user.id,
+        message_ids=request_data.message_ids if request_data.message_ids else None
+    )
+
+    return result
+
+
 @router.get(
     "/conversations/{conversation_id}/unread-count",
     response_model=dict,

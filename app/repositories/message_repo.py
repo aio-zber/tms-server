@@ -448,6 +448,91 @@ class MessageStatusRepository(BaseRepository[MessageStatus]):
             count += 1
         return count
 
+    async def mark_messages_as_delivered(
+        self,
+        conversation_id: UUID,
+        user_id: UUID,
+        message_ids: Optional[List[UUID]] = None
+    ) -> int:
+        """
+        Mark messages as delivered (SENT → DELIVERED) for a user in a conversation.
+
+        Implements Telegram/Messenger pattern:
+        - If message_ids provided: marks only those messages
+        - If message_ids is None: marks ALL SENT messages in conversation
+
+        Args:
+            conversation_id: Conversation UUID
+            user_id: User UUID
+            message_ids: Optional list of specific message UUIDs
+
+        Returns:
+            Number of statuses updated
+        """
+        from app.models.message import Message
+
+        if message_ids:
+            # Mark specific messages
+            count = 0
+            for message_id in message_ids:
+                # Check current status - only update if SENT
+                stmt = select(MessageStatus).where(
+                    and_(
+                        MessageStatus.message_id == message_id,
+                        MessageStatus.user_id == user_id
+                    )
+                )
+                result = await self.db.execute(stmt)
+                status = result.scalar_one_or_none()
+
+                if status and status.status == MessageStatusType.SENT:
+                    await self.upsert_status(message_id, user_id, MessageStatusType.DELIVERED)
+                    count += 1
+            return count
+        else:
+            # Mark all SENT messages in conversation as DELIVERED
+            # More efficient bulk update using SQL
+            from sqlalchemy import update
+
+            # Get all message IDs in conversation that have SENT status for this user
+            stmt = (
+                select(MessageStatus.message_id)
+                .join(Message, Message.id == MessageStatus.message_id)
+                .where(
+                    and_(
+                        Message.conversation_id == conversation_id,
+                        MessageStatus.user_id == user_id,
+                        MessageStatus.status == MessageStatusType.SENT,
+                        Message.deleted_at.is_(None)
+                    )
+                )
+            )
+            result = await self.db.execute(stmt)
+            sent_message_ids = [row[0] for row in result.all()]
+
+            if not sent_message_ids:
+                return 0
+
+            # Bulk update to DELIVERED
+            update_stmt = (
+                update(MessageStatus)
+                .where(
+                    and_(
+                        MessageStatus.message_id.in_(sent_message_ids),
+                        MessageStatus.user_id == user_id,
+                        MessageStatus.status == MessageStatusType.SENT
+                    )
+                )
+                .values(
+                    status=MessageStatusType.DELIVERED,
+                    updated_at=datetime.utcnow()
+                )
+            )
+            result = await self.db.execute(update_stmt)
+            await self.db.flush()
+
+            return result.rowcount if result.rowcount else 0
+
 
 class MessageReactionRepository(BaseRepository[MessageReaction]):
     """Repository for message reaction operations."""

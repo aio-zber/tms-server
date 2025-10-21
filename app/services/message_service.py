@@ -839,6 +839,74 @@ class MessageService:
             "message": f"Marked {count} messages as read"
         }
 
+    async def mark_messages_delivered(
+        self,
+        conversation_id: UUID,
+        user_id: UUID,
+        message_ids: Optional[List[UUID]] = None
+    ) -> Dict[str, Any]:
+        """
+        Mark messages as delivered (Telegram/Messenger pattern).
+
+        Called automatically when user opens a conversation.
+        Transitions messages from SENT → DELIVERED.
+
+        Args:
+            conversation_id: Conversation UUID
+            user_id: User UUID
+            message_ids: Optional list of specific message UUIDs (if None, marks all SENT messages)
+
+        Returns:
+            Success response with count
+
+        Raises:
+            HTTPException: If no access
+        """
+        # Verify user is conversation member
+        if not await self._verify_conversation_membership(conversation_id, user_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You are not a member of this conversation"
+            )
+
+        # Mark messages as delivered
+        count = await self.status_repo.mark_messages_as_delivered(
+            conversation_id=conversation_id,
+            user_id=user_id,
+            message_ids=message_ids
+        )
+        await self.db.commit()
+
+        # Broadcast message status updates via WebSocket
+        if message_ids:
+            for message_id in message_ids:
+                await self.ws_manager.broadcast_message_status(
+                    conversation_id,
+                    message_id,
+                    user_id,
+                    MessageStatusType.DELIVERED.value
+                )
+        else:
+            # If no specific messages, we marked all SENT messages
+            # Broadcast to conversation room (all members will update their UI)
+            await self.ws_manager.broadcast_to_conversation(
+                conversation_id,
+                {
+                    "type": "messages_delivered",
+                    "user_id": str(user_id),
+                    "conversation_id": str(conversation_id),
+                    "count": count
+                }
+            )
+
+        print(f"[MESSAGE_SERVICE] ✅ Marked {count} messages as DELIVERED for user {user_id} in conversation {conversation_id}")
+
+        return {
+            "success": True,
+            "updated_count": count,
+            "message": f"Marked {count} messages as delivered"
+        }
+
     async def search_messages(
         self,
         query: str,

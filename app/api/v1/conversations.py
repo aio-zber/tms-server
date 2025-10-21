@@ -353,3 +353,47 @@ async def mark_conversation_read(
     )
 
     return result
+
+
+@router.get(
+    "/search",
+    response_model=ConversationListResponse,
+    summary="Search conversations",
+    description="Search conversations by name or member names using fuzzy matching (Telegram/Messenger style)."
+)
+async def search_conversations(
+    q: str = Query(..., min_length=1, max_length=100, description="Search query (conversation or member name)"),
+    limit: int = Query(default=20, ge=1, le=50, description="Number of results to return"),
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Search conversations by name or member names.
+
+    Implements Telegram/Messenger-style search:
+    - Fuzzy matching for typo tolerance
+    - Searches conversation names (60% weight)
+    - Searches member names (40% weight)
+    - Returns only conversations the user is a member of
+    - Results ordered by relevance
+
+    - **q**: Search query string (min 1 char)
+    - **limit**: Maximum results (max 50)
+    """
+    service = ConversationService(db)
+    user = await get_current_user_from_db(current_user, db)
+
+    conversations = await service.search_conversations(
+        user_id=user.id,
+        query=q,
+        limit=limit
+    )
+
+    return {
+        "data": conversations,
+        "pagination": {
+            "next_cursor": None,  # Search doesn't use cursor pagination
+            "has_more": len(conversations) >= limit,
+            "limit": limit
+        }
+    }

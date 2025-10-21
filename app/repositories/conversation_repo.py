@@ -6,9 +6,9 @@ from datetime import datetime
 from typing import Optional, List, Tuple, Dict, Any
 from uuid import UUID
 
-from sqlalchemy import select, func, and_, or_, desc, delete
+from sqlalchemy import select, func, and_, or_, desc, delete, literal, case
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload, joinedload
+from sqlalchemy.orm import selectinload, joinedload, aliased
 
 from app.models.conversation import Conversation, ConversationMember, ConversationType, ConversationRole
 from app.models.message import Message
@@ -248,6 +248,117 @@ class ConversationRepository(BaseRepository[Conversation]):
 
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
+
+    async def search_conversations(
+        self,
+        user_id: UUID,
+        query: str,
+        limit: int = 20
+    ) -> List[Conversation]:
+        """
+        Search conversations by name, description, or member names using PostgreSQL full-text search.
+
+        Implements hybrid search strategy similar to Telegram/Messenger:
+        - Uses trigram similarity for fuzzy matching
+        - Searches conversation name (60% weight)
+        - Searches member names (40% weight)
+        - Only returns conversations the user is a member of
+
+        Args:
+            user_id: User UUID (must be a member of returned conversations)
+            query: Search query string
+            limit: Maximum results to return (default 20)
+
+        Returns:
+            List of conversations ordered by relevance score
+        """
+        # Normalize search query for trigram matching
+        search_term = query.strip().lower()
+
+        # Subquery to get user's conversation IDs
+        member_subquery = (
+            select(ConversationMember.conversation_id)
+            .where(ConversationMember.user_id == user_id)
+        )
+
+        # Alias for member users to search
+        MemberUser = aliased(User)
+
+        # Build search query with weighted scoring
+        # Using ILIKE for simple matching and similarity for ranking
+        stmt = (
+            select(
+                Conversation,
+                # Calculate relevance score
+                case(
+                    # Exact match on conversation name (highest priority)
+                    (func.lower(Conversation.name).like(f"%{search_term}%"), literal(1.0)),
+                    # Fuzzy match on conversation name using similarity
+                    else_=(
+                        func.coalesce(
+                            func.similarity(func.lower(Conversation.name), search_term) * 0.6,
+                            literal(0.0)
+                        ) +
+                        # Add member name similarity score
+                        func.coalesce(
+                            func.max(
+                                func.similarity(
+                                    func.lower(
+                                        func.concat(MemberUser.first_name, ' ', MemberUser.last_name)
+                                    ),
+                                    search_term
+                                )
+                            ) * 0.4,
+                            literal(0.0)
+                        )
+                    )
+                ).label("relevance")
+            )
+            .select_from(Conversation)
+            .join(
+                ConversationMember,
+                ConversationMember.conversation_id == Conversation.id
+            )
+            .join(
+                MemberUser,
+                MemberUser.id == ConversationMember.user_id
+            )
+            .where(
+                and_(
+                    # Only user's conversations
+                    Conversation.id.in_(member_subquery),
+                    # Match either conversation name or member names
+                    or_(
+                        # Conversation name match
+                        func.lower(Conversation.name).like(f"%{search_term}%"),
+                        # Member name match (first name or last name)
+                        func.lower(
+                            func.concat(MemberUser.first_name, ' ', MemberUser.last_name)
+                        ).like(f"%{search_term}%"),
+                        # Trigram similarity threshold (0.3 is a good balance)
+                        func.similarity(func.lower(Conversation.name), search_term) > 0.3,
+                        func.similarity(
+                            func.lower(
+                                func.concat(MemberUser.first_name, ' ', MemberUser.last_name)
+                            ),
+                            search_term
+                        ) > 0.3
+                    )
+                )
+            )
+            .group_by(Conversation.id)
+            .order_by(desc(literal_column("relevance")), desc(Conversation.updated_at))
+            .limit(limit)
+            .options(
+                selectinload(Conversation.members).selectinload(ConversationMember.user),
+                selectinload(Conversation.creator)
+            )
+        )
+
+        result = await self.db.execute(stmt)
+        # Extract just the Conversation objects (first element of each tuple)
+        conversations = [row[0] for row in result.all()]
+        return conversations
 
 
 class ConversationMemberRepository:
