@@ -189,3 +189,102 @@ async def get_user_presence(user_id: str) -> Optional[str]:
     key = f"presence:{user_id}"
     data = await cache.get(key)
     return data.get("status") if data else None
+
+
+# Unread count caching (Messenger/Telegram pattern)
+async def cache_unread_count(user_id: str, conversation_id: str, count: int) -> bool:
+    """
+    Cache unread message count for a user in a conversation.
+
+    Following Telegram/Messenger pattern with short TTL (60 seconds).
+    Cache is invalidated when:
+    - User marks messages as read
+    - New message arrives in conversation
+    - User opens conversation
+
+    Args:
+        user_id: User UUID string
+        conversation_id: Conversation UUID string
+        count: Number of unread messages
+
+    Returns:
+        True if cached successfully
+    """
+    key = f"unread:{user_id}:{conversation_id}"
+    # Short TTL (60s) ensures fresh data while reducing DB load
+    return await cache.set(key, count, ttl=60)
+
+
+async def get_cached_unread_count(user_id: str, conversation_id: str) -> Optional[int]:
+    """
+    Get cached unread count for a user in a conversation.
+
+    Args:
+        user_id: User UUID string
+        conversation_id: Conversation UUID string
+
+    Returns:
+        Cached count or None if cache miss
+    """
+    key = f"unread:{user_id}:{conversation_id}"
+    count = await cache.get(key)
+    return int(count) if count is not None else None
+
+
+async def invalidate_unread_count_cache(user_id: str, conversation_id: str) -> bool:
+    """
+    Invalidate cached unread count (called when count changes).
+
+    Args:
+        user_id: User UUID string
+        conversation_id: Conversation UUID string
+
+    Returns:
+        True if invalidated successfully
+    """
+    key = f"unread:{user_id}:{conversation_id}"
+    return await cache.delete(key)
+
+
+async def cache_total_unread_count(user_id: str, count: int) -> bool:
+    """
+    Cache total unread count across all conversations for a user.
+
+    Args:
+        user_id: User UUID string
+        count: Total unread count
+
+    Returns:
+        True if cached successfully
+    """
+    key = f"unread:total:{user_id}"
+    return await cache.set(key, count, ttl=60)
+
+
+async def get_cached_total_unread_count(user_id: str) -> Optional[int]:
+    """
+    Get cached total unread count for a user.
+
+    Args:
+        user_id: User UUID string
+
+    Returns:
+        Cached total count or None if cache miss
+    """
+    key = f"unread:total:{user_id}"
+    count = await cache.get(key)
+    return int(count) if count is not None else None
+
+
+async def invalidate_total_unread_count_cache(user_id: str) -> bool:
+    """
+    Invalidate cached total unread count.
+
+    Args:
+        user_id: User UUID string
+
+    Returns:
+        True if invalidated successfully
+    """
+    key = f"unread:total:{user_id}"
+    return await cache.delete(key)
