@@ -301,6 +301,15 @@ class MessageService:
         await self.db.commit()
         print(f"[MESSAGE_SERVICE] ✅ Transaction committed for message {message.id}")
 
+        # Invalidate unread count cache for all conversation members (except sender)
+        # Following Messenger/Telegram pattern: new message = increment unread for recipients
+        from app.core.cache import invalidate_unread_count_cache, invalidate_total_unread_count_cache
+        for member in members:
+            if member.user_id != sender_id:
+                await invalidate_unread_count_cache(str(member.user_id), str(conversation_id))
+                await invalidate_total_unread_count_cache(str(member.user_id))
+        print(f"[MESSAGE_SERVICE] 🗑️ Invalidated unread count cache for {len(members)-1} recipients")
+
         # Reload message with relations
         message = await self.message_repo.get_with_relations(message.id)
         print(f"[MESSAGE_SERVICE] 🔄 Message reloaded after commit: id={message.id}")
@@ -808,6 +817,12 @@ class MessageService:
         # Mark messages as read
         count = await self.status_repo.mark_messages_as_read(message_ids, user_id)
         await self.db.commit()
+
+        # Invalidate unread count cache (Messenger/Telegram pattern)
+        from app.core.cache import invalidate_unread_count_cache, invalidate_total_unread_count_cache
+        await invalidate_unread_count_cache(str(user_id), str(conversation_id))
+        await invalidate_total_unread_count_cache(str(user_id))
+        print(f"[MESSAGE_SERVICE] 🗑️ Invalidated unread count cache for user {user_id} in conversation {conversation_id}")
 
         # Broadcast message status updates via WebSocket
         for message_id in message_ids:

@@ -323,29 +323,72 @@ async def get_conversation_messages(
     - **limit**: Number of messages (max 100)
     - **cursor**: Last message ID for pagination
     """
-    service = MessageService(db)
+    try:
+        service = MessageService(db)
 
-    # Get user_id from local user record
-    from app.models.user import User
-    from sqlalchemy import select
+        # Get user_id from local user record
+        from app.models.user import User
+        from sqlalchemy import select
+        from sqlalchemy.exc import SQLAlchemyError
 
-    result = await db.execute(
-        select(User).where(User.tms_user_id == current_user["tms_user_id"])
-    )
-    user = result.scalar_one_or_none()
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found in local database"
+        result = await db.execute(
+            select(User).where(User.tms_user_id == current_user["tms_user_id"])
         )
+        user = result.scalar_one_or_none()
 
-    messages, next_cursor, has_more = await service.get_conversation_messages(
-        conversation_id=conversation_id,
-        user_id=user.id,
-        limit=limit,
-        cursor=cursor
-    )
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found in local database"
+            )
+
+        messages, next_cursor, has_more = await service.get_conversation_messages(
+            conversation_id=conversation_id,
+            user_id=user.id,
+            limit=limit,
+            cursor=cursor
+        )
+    except HTTPException:
+        # Re-raise FastAPI HTTP exceptions
+        raise
+    except SQLAlchemyError as e:
+        # Log database errors
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(
+            f"Database error fetching messages: {type(e).__name__}: {str(e)}",
+            extra={
+                "user_id": current_user.get("tms_user_id"),
+                "conversation_id": str(conversation_id),
+                "cursor": str(cursor) if cursor else None,
+                "limit": limit
+            },
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database error occurred while fetching messages. Please try again."
+        )
+    except Exception as e:
+        # Log unexpected errors
+        import logging
+        import traceback
+        logger = logging.getLogger(__name__)
+        logger.error(
+            f"Unexpected error fetching messages: {type(e).__name__}: {str(e)}",
+            extra={
+                "user_id": current_user.get("tms_user_id"),
+                "conversation_id": str(conversation_id),
+                "cursor": str(cursor) if cursor else None,
+                "limit": limit,
+                "traceback": traceback.format_exc()
+            },
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An unexpected error occurred while fetching messages: {type(e).__name__}"
+        )
 
     # Debug: Check reply_to data
     print(f"[API] Fetched {len(messages)} messages")
@@ -455,7 +498,7 @@ async def get_conversation_unread_count(
     # Use repository method directly
     from app.repositories.message_repo import MessageRepository
     message_repo = MessageRepository(db)
-    count = await message_repo.get_unread_count(user.id, conversation_id)
+    count = await message_repo.get_unread_count(conversation_id, user.id)
 
     return {
         "conversation_id": str(conversation_id),
@@ -509,7 +552,7 @@ async def get_total_unread_count(
     total_count = 0
 
     for conversation_id in conversation_ids:
-        count = await message_repo.get_unread_count(user.id, conversation_id)
+        count = await message_repo.get_unread_count(conversation_id, user.id)
         if count > 0:
             conversation_counts[str(conversation_id)] = count
             total_count += count
