@@ -868,7 +868,7 @@ class MessageService:
         conversation_id: UUID
     ) -> Dict[str, Any]:
         """
-        Mark multiple messages as read.
+        Mark multiple messages as read and update last_read_at timestamp.
 
         Args:
             message_ids: List of message UUIDs
@@ -888,8 +888,36 @@ class MessageService:
                 detail="You are not a member of this conversation"
             )
 
-        # Mark messages as read
+        # Mark messages as read in message_status table
         count = await self.status_repo.mark_messages_as_read(message_ids, user_id)
+
+        # Update conversation_members.last_read_at to latest message timestamp
+        # This ensures unread count calculation stays accurate
+        if message_ids:
+            # Get the latest message timestamp from the batch
+            latest_message_query = (
+                select(Message.created_at)
+                .where(Message.id.in_(message_ids))
+                .order_by(desc(Message.created_at))
+                .limit(1)
+            )
+            result = await self.db.execute(latest_message_query)
+            latest_timestamp = result.scalar_one_or_none()
+
+            if latest_timestamp:
+                # Update last_read_at for this conversation member
+                from app.repositories.conversation_repo import ConversationMemberRepository
+                member_repo = ConversationMemberRepository(self.db)
+                member = await member_repo.get_member(conversation_id, user_id)
+
+                if member:
+                    # Only update if new timestamp is later than current last_read_at
+                    if member.last_read_at is None or latest_timestamp > member.last_read_at:
+                        member.last_read_at = latest_timestamp
+                        print(f"[MESSAGE_SERVICE] 📅 Updated last_read_at to {latest_timestamp} for user {user_id} in conversation {conversation_id}")
+                    else:
+                        print(f"[MESSAGE_SERVICE] ⏭️ Skipping last_read_at update (current: {member.last_read_at}, new: {latest_timestamp})")
+
         await self.db.commit()
 
         # Invalidate unread count cache (Messenger/Telegram pattern)
