@@ -587,8 +587,11 @@ class ConversationService:
         Raises:
             HTTPException: If not found or not a member
         """
+        print(f"[MARK_READ] 📖 Marking conversation {conversation_id} as read for user {user_id}")
+
         # Verify user is member
         if not await self.member_repo.is_member(conversation_id, user_id):
+            print(f"[MARK_READ] ❌ User {user_id} is not a member of conversation {conversation_id}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="You are not a member of this conversation"
@@ -598,12 +601,21 @@ class ConversationService:
         member = await self.member_repo.update_last_read(conversation_id, user_id)
 
         if not member:
+            print(f"[MARK_READ] ❌ Failed to update last_read_at for user {user_id}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to update read status"
             )
 
+        print(f"[MARK_READ] ✅ Updated last_read_at to {member.last_read_at} for user {user_id}")
+
         await self.db.commit()
+
+        # Invalidate unread count cache (Messenger/Telegram pattern)
+        from app.core.cache import invalidate_unread_count_cache, invalidate_total_unread_count_cache
+        await invalidate_unread_count_cache(str(user_id), str(conversation_id))
+        await invalidate_total_unread_count_cache(str(user_id))
+        print(f"[MARK_READ] 🗑️ Invalidated unread count cache for user {user_id}")
 
         return {
             "success": True,

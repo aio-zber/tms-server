@@ -260,8 +260,9 @@ class ConversationRepository(BaseRepository[Conversation]):
 
         Implements hybrid search strategy similar to Telegram/Messenger:
         - Uses trigram similarity for fuzzy matching
-        - Searches conversation name (60% weight)
-        - Searches member names (40% weight)
+        - Searches conversation name (60% weight) for groups
+        - Searches member names (40% weight) - INCLUDES DM partner names
+        - For DMs, searches the OTHER participant's name
         - Only returns conversations the user is a member of
 
         Args:
@@ -274,6 +275,8 @@ class ConversationRepository(BaseRepository[Conversation]):
         """
         # Normalize search query for trigram matching
         search_term = query.strip().lower()
+
+        print(f"[SEARCH] 🔍 Searching conversations for user {user_id} with query: '{search_term}'")
 
         # Subquery to get user's conversation IDs
         member_subquery = (
@@ -289,17 +292,25 @@ class ConversationRepository(BaseRepository[Conversation]):
         stmt = (
             select(
                 Conversation,
-                # Calculate relevance score
+                # Calculate relevance score with improved handling for DMs
                 case(
-                    # Exact match on conversation name (highest priority)
-                    (func.lower(Conversation.name).like(f"%{search_term}%"), literal(1.0)),
-                    # Fuzzy match on conversation name using similarity
+                    # Exact match on conversation name (highest priority - for groups)
+                    (
+                        and_(
+                            Conversation.name.isnot(None),
+                            func.lower(Conversation.name).like(f"%{search_term}%")
+                        ),
+                        literal(1.0)
+                    ),
+                    # For DMs (no name) or fuzzy matches, use member name matching
                     else_=(
+                        # Conversation name similarity (for groups)
                         func.coalesce(
                             func.similarity(func.lower(Conversation.name), search_term) * 0.6,
                             literal(0.0)
                         ) +
-                        # Add member name similarity score
+                        # Member name similarity (works for both groups and DMs)
+                        # For DMs, this matches the OTHER participant's name
                         func.coalesce(
                             func.max(
                                 func.similarity(
@@ -308,7 +319,7 @@ class ConversationRepository(BaseRepository[Conversation]):
                                     ),
                                     search_term
                                 )
-                            ) * 0.4,
+                            ) * 0.8,  # Increased weight to 80% for better DM matching
                             literal(0.0)
                         )
                     )
@@ -329,20 +340,27 @@ class ConversationRepository(BaseRepository[Conversation]):
                     Conversation.id.in_(member_subquery),
                     # Match either conversation name or member names
                     or_(
-                        # Conversation name match
-                        func.lower(Conversation.name).like(f"%{search_term}%"),
-                        # Member name match (first name or last name)
+                        # Conversation name match (for groups)
+                        and_(
+                            Conversation.name.isnot(None),
+                            func.lower(Conversation.name).like(f"%{search_term}%")
+                        ),
+                        # Member name match (works for both groups and DMs)
                         func.lower(
                             func.concat(MemberUser.first_name, ' ', MemberUser.last_name)
                         ).like(f"%{search_term}%"),
-                        # Trigram similarity threshold (0.3 is a good balance)
-                        func.similarity(func.lower(Conversation.name), search_term) > 0.3,
+                        # Trigram similarity for conversation name
+                        and_(
+                            Conversation.name.isnot(None),
+                            func.similarity(func.lower(Conversation.name), search_term) > 0.3
+                        ),
+                        # Trigram similarity for member names (lower threshold for DMs)
                         func.similarity(
                             func.lower(
                                 func.concat(MemberUser.first_name, ' ', MemberUser.last_name)
                             ),
                             search_term
-                        ) > 0.3
+                        ) > 0.2  # Lower threshold to catch more DM matches
                     )
                 )
             )
@@ -358,6 +376,11 @@ class ConversationRepository(BaseRepository[Conversation]):
         result = await self.db.execute(stmt)
         # Extract just the Conversation objects (first element of each tuple)
         conversations = [row[0] for row in result.all()]
+
+        print(f"[SEARCH] ✅ Found {len(conversations)} conversations")
+        for conv in conversations[:3]:  # Show first 3 results
+            print(f"  - {conv.type}: {conv.name or 'DM'} (id: {str(conv.id)[:8]})")
+
         return conversations
 
 
@@ -620,7 +643,11 @@ class ConversationMemberRepository:
         """
         member = await self.get_member(conversation_id, user_id)
         if not member:
+            print(f"[UNREAD_COUNT] ⚠️ User {user_id} is not a member of conversation {conversation_id}")
             return 0
+
+        print(f"[UNREAD_COUNT] 🔍 Calculating unread count for user {user_id} in conversation {conversation_id}")
+        print(f"[UNREAD_COUNT] 📅 Member last_read_at: {member.last_read_at}")
 
         # Count messages after last_read_at
         query = select(func.count()).select_from(Message).where(
@@ -633,6 +660,12 @@ class ConversationMemberRepository:
 
         if member.last_read_at:
             query = query.where(Message.created_at > member.last_read_at)
+            print(f"[UNREAD_COUNT] 🔍 Counting messages created after {member.last_read_at}")
+        else:
+            print(f"[UNREAD_COUNT] ⚠️ No last_read_at timestamp - counting ALL messages")
 
         result = await self.db.execute(query)
-        return result.scalar()
+        count = result.scalar() or 0
+
+        print(f"[UNREAD_COUNT] ✅ Unread count: {count}")
+        return count
