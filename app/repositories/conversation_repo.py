@@ -262,9 +262,11 @@ class ConversationRepository(BaseRepository[Conversation]):
         - Uses trigram similarity for fuzzy matching
         - Searches conversation name (60% weight) for groups
         - Searches member names (40% weight) - INCLUDES DM partner names
-        - Searches message content in conversations (NEW: Telegram/Messenger pattern)
+        - Searches message content in conversations (Telegram/Messenger pattern)
         - For DMs, searches the OTHER participant's name
         - Only returns conversations the user is a member of
+
+        Uses simple two-step approach (no UNION) for better SQL compatibility.
 
         Args:
             user_id: User UUID (must be a member of returned conversations)
@@ -288,43 +290,9 @@ class ConversationRepository(BaseRepository[Conversation]):
         # Alias for member users to search
         MemberUser = aliased(User)
 
-        # Part 1: Search by conversation name and member names (existing)
-        conv_name_query = (
-            select(
-                Conversation,
-                # Calculate relevance score with improved handling for DMs
-                case(
-                    # Exact match on conversation name (highest priority - for groups)
-                    (
-                        and_(
-                            Conversation.name.isnot(None),
-                            func.lower(Conversation.name).like(f"%{search_term}%")
-                        ),
-                        literal(1.0)
-                    ),
-                    # For DMs (no name) or fuzzy matches, use member name matching
-                    else_=(
-                        # Conversation name similarity (for groups)
-                        func.coalesce(
-                            func.similarity(func.lower(Conversation.name), search_term) * 0.6,
-                            literal(0.0)
-                        ) +
-                        # Member name similarity (works for both groups and DMs)
-                        # For DMs, this matches the OTHER participant's name
-                        func.coalesce(
-                            func.max(
-                                func.similarity(
-                                    func.lower(
-                                        func.concat(MemberUser.first_name, ' ', MemberUser.last_name)
-                                    ),
-                                    search_term
-                                )
-                            ) * 0.8,  # Increased weight to 80% for better DM matching
-                            literal(0.0)
-                        )
-                    )
-                ).label("relevance")
-            )
+        # Step 1: Get conversation IDs from name/member matches
+        name_match_query = (
+            select(Conversation.id.distinct())
             .select_from(Conversation)
             .join(
                 ConversationMember,
@@ -364,19 +332,15 @@ class ConversationRepository(BaseRepository[Conversation]):
                     )
                 )
             )
-            .group_by(Conversation.id)
         )
 
-        # Part 2: Search by message content (NEW: Telegram/Messenger pattern)
-        # Find conversations that contain messages matching the search query
-        message_conv_query = (
-            select(
-                Conversation,
-                # Relevance score based on message content match
-                func.max(
-                    func.similarity(func.lower(Message.content), search_term)
-                ).label("relevance")
-            )
+        result = await self.db.execute(name_match_query)
+        conv_ids_from_names = [row[0] for row in result.all()]
+        print(f"[SEARCH] 📝 Found {len(conv_ids_from_names)} conversations from name/member matches")
+
+        # Step 2: Get conversation IDs from message content matches
+        message_match_query = (
+            select(Conversation.id.distinct())
             .select_from(Conversation)
             .join(Message, Message.conversation_id == Conversation.id)
             .where(
@@ -394,35 +358,26 @@ class ConversationRepository(BaseRepository[Conversation]):
                     )
                 )
             )
-            .group_by(Conversation.id)
         )
 
-        # UNION the two queries and deduplicate
-        combined_query = (
-            select(
-                Conversation.id.label("conv_id"),
-                func.max(literal_column("relevance")).label("max_relevance")
-            )
-            .select_from(
-                conv_name_query.union_all(message_conv_query).subquery()
-            )
-            .group_by(Conversation.id)
-            .order_by(desc(literal_column("max_relevance")), desc(Conversation.updated_at))
-            .limit(limit)
-        )
+        result = await self.db.execute(message_match_query)
+        conv_ids_from_messages = [row[0] for row in result.all()]
+        print(f"[SEARCH] 💬 Found {len(conv_ids_from_messages)} conversations from message content matches")
 
-        # Get the final conversation IDs
-        result = await self.db.execute(combined_query)
-        conv_ids = [row[0] for row in result.all()]
+        # Step 3: Merge and deduplicate conversation IDs
+        all_conv_ids = list(set(conv_ids_from_names + conv_ids_from_messages))
 
-        if not conv_ids:
+        if not all_conv_ids:
             print(f"[SEARCH] ⚠️ No conversations found for query: '{search_term}'")
             return []
 
-        # Fetch full conversation objects with relations
+        # Step 4: Fetch full conversation objects with relations
+        # Order by updated_at (most recent first)
         final_query = (
             select(Conversation)
-            .where(Conversation.id.in_(conv_ids))
+            .where(Conversation.id.in_(all_conv_ids))
+            .order_by(desc(Conversation.updated_at))
+            .limit(limit)
             .options(
                 selectinload(Conversation.members).selectinload(ConversationMember.user),
                 selectinload(Conversation.creator)
@@ -432,11 +387,7 @@ class ConversationRepository(BaseRepository[Conversation]):
         result = await self.db.execute(final_query)
         conversations = list(result.scalars().all())
 
-        # Sort by the original relevance order
-        conv_order = {conv_id: idx for idx, conv_id in enumerate(conv_ids)}
-        conversations.sort(key=lambda c: conv_order.get(c.id, 999))
-
-        print(f"[SEARCH] ✅ Found {len(conversations)} conversations (name/member matches + message content matches)")
+        print(f"[SEARCH] ✅ Found {len(conversations)} conversations total (name/member + message content)")
         for conv in conversations[:3]:  # Show first 3 results
             print(f"  - {conv.type}: {conv.name or 'DM'} (id: {str(conv.id)[:8]})")
 
