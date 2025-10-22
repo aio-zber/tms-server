@@ -184,7 +184,11 @@ class MessageRepository(BaseRepository[Message]):
         search_query = select(Message).options(
             selectinload(Message.sender),
             selectinload(Message.reactions),
-            selectinload(Message.statuses)
+            selectinload(Message.statuses),
+            # Eager load reply_to AND its nested relationships
+            selectinload(Message.reply_to).selectinload(Message.sender),
+            selectinload(Message.reply_to).selectinload(Message.reactions),
+            selectinload(Message.reply_to).selectinload(Message.statuses),
         )
 
         # Apply filters first to narrow down search space

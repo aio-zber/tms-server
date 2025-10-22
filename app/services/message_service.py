@@ -149,25 +149,69 @@ class MessageService:
         }
 
         # Fetch sender data from TMS
-        if message.sender:
+        # Check if sender is loaded (not lazy) to avoid greenlet_spawn error
+        from sqlalchemy.orm import object_session
+        from sqlalchemy.inspect import inspect
+
+        sender_loaded = False
+        sender_tms_id = None
+
+        # Safely check if sender is loaded without triggering lazy load
+        try:
+            insp = inspect(message)
+            if 'sender' not in insp.unloaded:
+                sender_loaded = True
+                if message.sender:
+                    sender_tms_id = message.sender.tms_user_id
+        except Exception:
+            # If inspection fails, try direct access (might be already loaded)
+            try:
+                if message.sender:
+                    sender_loaded = True
+                    sender_tms_id = message.sender.tms_user_id
+            except Exception:
+                pass
+
+        if sender_loaded and sender_tms_id:
             try:
                 sender_data = await tms_client.get_user(
-                    message.sender.tms_user_id,
+                    sender_tms_id,
                     use_cache=True
                 )
                 message_dict["sender"] = sender_data
             except TMSAPIException:
                 # Fallback to basic sender info
                 message_dict["sender"] = {
-                    "id": str(message.sender.id),
-                    "tms_user_id": message.sender.tms_user_id
+                    "id": str(message.sender_id),
+                    "tms_user_id": sender_tms_id
                 }
+        else:
+            # Sender not loaded, use minimal info
+            message_dict["sender"] = {
+                "id": str(message.sender_id)
+            }
 
         # Enrich reply_to if present
         if message.reply_to_id:
             print(f"[ENRICH] Message {message.id} has reply_to_id: {message.reply_to_id}")
-            print(f"[ENRICH] message.reply_to object loaded: {message.reply_to is not None}")
-            if message.reply_to:
+
+            # Check if reply_to is loaded without triggering lazy load
+            reply_to_loaded = False
+            try:
+                insp = inspect(message)
+                if 'reply_to' not in insp.unloaded and message.reply_to is not None:
+                    reply_to_loaded = True
+                    print(f"[ENRICH] reply_to object loaded: True")
+            except Exception:
+                # If inspection fails, try direct access carefully
+                try:
+                    if message.reply_to is not None:
+                        reply_to_loaded = True
+                        print(f"[ENRICH] reply_to object loaded via direct access: True")
+                except Exception:
+                    print(f"[ENRICH] ⚠️ reply_to not loaded, cannot access without triggering lazy load")
+
+            if reply_to_loaded:
                 try:
                     print(f"[ENRICH] Recursively enriching reply_to message: {message.reply_to.id}")
                     message_dict["reply_to"] = await self._enrich_message_with_user_data(
@@ -175,18 +219,31 @@ class MessageService:
                     )
                 except Exception as e:
                     print(f"[MESSAGE_SERVICE] ❌ Failed to enrich reply_to: {e}")
-                    # Fallback: return minimal reply_to info without enrichment
-                    message_dict["reply_to"] = {
-                        "id": str(message.reply_to.id),
-                        "conversation_id": str(message.reply_to.conversation_id),
-                        "sender_id": str(message.reply_to.sender_id),
-                        "content": message.reply_to.content,
-                        "type": message.reply_to.type.value,
-                        "created_at": message.reply_to.created_at.isoformat(),
-                        "is_edited": message.reply_to.is_edited,
-                    }
+                    # Fallback: return ALL required fields for MessageResponse schema
+                    try:
+                        message_dict["reply_to"] = {
+                            "id": message.reply_to.id,
+                            "conversation_id": message.reply_to.conversation_id,
+                            "sender_id": message.reply_to.sender_id,
+                            "content": message.reply_to.content,
+                            "type": message.reply_to.type,
+                            "metadata_json": message.reply_to.metadata_json or {},
+                            "reply_to_id": message.reply_to.reply_to_id,
+                            "is_edited": message.reply_to.is_edited,
+                            "created_at": message.reply_to.created_at,
+                            "updated_at": message.reply_to.updated_at,
+                            "deleted_at": message.reply_to.deleted_at,
+                            "reactions": [],
+                            "statuses": [],
+                            "sender": None,
+                            "reply_to": None
+                        }
+                    except Exception as fallback_error:
+                        print(f"[MESSAGE_SERVICE] ❌ Even fallback failed: {fallback_error}")
+                        # If even basic access fails, set to None
+                        message_dict["reply_to"] = None
             else:
-                print(f"[ENRICH] ⚠️ WARNING: reply_to_id exists but reply_to object is None! (MissingGreenlet?)")
+                print(f"[ENRICH] ⚠️ WARNING: reply_to_id exists but reply_to object is not loaded! Setting to None.")
                 message_dict["reply_to"] = None
         else:
             # Explicitly set to None if no reply_to_id
@@ -540,13 +597,29 @@ class MessageService:
                     print(f"[MESSAGE_SERVICE] ✅ Successfully enriched reply_to for message {message.id}")
                 except Exception as e:
                     print(f"[MESSAGE_SERVICE] ❌ Failed to enrich reply_to: {e}")
-                    # Fallback: Include basic reply_to info
-                    message_dict["reply_to"] = {
-                        "id": str(message.reply_to.id),
-                        "content": message.reply_to.content,
-                        "sender_id": str(message.reply_to.sender_id),
-                        "created_at": message.reply_to.created_at
-                    }
+                    # Fallback: Include ALL required fields for MessageResponse schema
+                    try:
+                        message_dict["reply_to"] = {
+                            "id": message.reply_to.id,
+                            "conversation_id": message.reply_to.conversation_id,
+                            "sender_id": message.reply_to.sender_id,
+                            "content": message.reply_to.content,
+                            "type": message.reply_to.type,
+                            "metadata_json": message.reply_to.metadata_json or {},
+                            "reply_to_id": message.reply_to.reply_to_id,
+                            "is_edited": message.reply_to.is_edited,
+                            "created_at": message.reply_to.created_at,
+                            "updated_at": message.reply_to.updated_at,
+                            "deleted_at": message.reply_to.deleted_at,
+                            "reactions": [],
+                            "statuses": [],
+                            "sender": None,
+                            "reply_to": None
+                        }
+                    except Exception as fallback_error:
+                        print(f"[MESSAGE_SERVICE] ❌ Even fallback failed: {fallback_error}")
+                        # Last resort: set to None
+                        message_dict["reply_to"] = None
             else:
                 if message.reply_to_id:
                     print(f"[MESSAGE_SERVICE] ⚠️ Message {message.id} has reply_to_id but reply_to is None! (Lazy load failed)")
