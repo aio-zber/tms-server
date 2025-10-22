@@ -126,6 +126,33 @@ class ConversationService:
         conversation_dict["members"] = enriched_members
         conversation_dict["member_count"] = len(enriched_members)
 
+        # Compute display_name for DMs (Telegram/Messenger pattern)
+        # For DMs: display the OTHER user's name
+        # For groups: use the group name
+        if conversation.type == ConversationType.DM:
+            # Find the other user (not current user)
+            other_members = [m for m in enriched_members if m["user_id"] != user_id]
+
+            if other_members and "user" in other_members[0]:
+                other_user_data = other_members[0]["user"]
+                # Use first_name + last_name as display name
+                first_name = other_user_data.get("first_name", "")
+                last_name = other_user_data.get("last_name", "")
+                display_name = f"{first_name} {last_name}".strip()
+
+                # Fallback to email if no name available
+                if not display_name:
+                    display_name = other_user_data.get("email", "Direct Message")
+
+                conversation_dict["display_name"] = display_name
+                print(f"[CONVERSATION_SERVICE] 💬 DM display_name: '{display_name}'")
+            else:
+                conversation_dict["display_name"] = "Direct Message"
+                print(f"[CONVERSATION_SERVICE] ⚠️ DM has no other user, using fallback")
+        else:
+            # For groups, use the group name
+            conversation_dict["display_name"] = conversation.name or "Group Chat"
+
         # Get unread count for current user
         unread_count = await self.member_repo.get_unread_count(
             conversation.id,
