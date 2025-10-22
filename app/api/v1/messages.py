@@ -524,6 +524,8 @@ async def get_conversation_unread_count(
     """
     Get unread message count for a conversation.
 
+    Uses last_read_at timestamp for accurate counting (Telegram/Messenger pattern).
+
     - **conversation_id**: UUID of the conversation
     """
     service = MessageService(db)
@@ -543,10 +545,10 @@ async def get_conversation_unread_count(
             detail="User not found in local database"
         )
 
-    # Use repository method directly
-    from app.repositories.message_repo import MessageRepository
-    message_repo = MessageRepository(db)
-    count = await message_repo.get_unread_count(conversation_id, user.id)
+    # Use ConversationMemberRepository with last_read_at timestamp (more reliable)
+    from app.repositories.conversation_repo import ConversationMemberRepository
+    member_repo = ConversationMemberRepository(db)
+    count = await member_repo.get_unread_count(conversation_id, user.id)
 
     return {
         "conversation_id": str(conversation_id),
@@ -567,6 +569,8 @@ async def get_total_unread_count(
     """
     Get total unread message count across all conversations.
 
+    Uses last_read_at timestamp for accurate counting (Telegram/Messenger pattern).
+
     Returns the total count and per-conversation breakdown.
     """
     # Get user_id from local user record
@@ -586,7 +590,7 @@ async def get_total_unread_count(
 
     # Get all conversations the user is part of
     from app.models.conversation import ConversationMember
-    from app.repositories.message_repo import MessageRepository
+    from app.repositories.conversation_repo import ConversationMemberRepository
 
     result = await db.execute(
         select(ConversationMember.conversation_id)
@@ -594,13 +598,13 @@ async def get_total_unread_count(
     )
     conversation_ids = [row[0] for row in result.all()]
 
-    # Get unread count for each conversation
-    message_repo = MessageRepository(db)
+    # Get unread count for each conversation using last_read_at timestamp
+    member_repo = ConversationMemberRepository(db)
     conversation_counts = {}
     total_count = 0
 
     for conversation_id in conversation_ids:
-        count = await message_repo.get_unread_count(conversation_id, user.id)
+        count = await member_repo.get_unread_count(conversation_id, user.id)
         if count > 0:
             conversation_counts[str(conversation_id)] = count
             total_count += count
