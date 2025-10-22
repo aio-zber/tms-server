@@ -78,12 +78,29 @@ class UserRepository(BaseRepository[User]):
             ```
         """
         # Map TMS data to local user fields
+        # GCGC uses "name" (single field) instead of firstName/lastName
+        # So we need to split the name or use it as-is
+        full_name = tms_data.get("name", "")
+        name_parts = full_name.split(" ", 1) if full_name else []
+
+        # Try to get firstName/lastName, but fallback to splitting "name"
+        first_name = (
+            tms_data.get("firstName") or
+            tms_data.get("first_name") or
+            (name_parts[0] if len(name_parts) > 0 else None)
+        )
+        last_name = (
+            tms_data.get("lastName") or
+            tms_data.get("last_name") or
+            (name_parts[1] if len(name_parts) > 1 else None)
+        )
+
         user_data = {
             "tms_user_id": tms_user_id,
             "email": tms_data.get("email"),
-            "username": tms_data.get("username"),
-            "first_name": tms_data.get("firstName") or tms_data.get("first_name"),
-            "last_name": tms_data.get("lastName") or tms_data.get("last_name"),
+            "username": tms_data.get("username") or tms_data.get("email", "").split("@")[0],  # Fallback to email prefix
+            "first_name": first_name,
+            "last_name": last_name,
             "middle_name": tms_data.get("middleName") or tms_data.get("middle_name"),
             "image": tms_data.get("image"),
             "role": tms_data.get("role"),
@@ -98,6 +115,8 @@ class UserRepository(BaseRepository[User]):
             "is_leader": tms_data.get("isLeader", tms_data.get("is_leader", False)),
             "last_synced_at": datetime.utcnow(),
         }
+
+        print(f"[USER_REPO] 👤 Syncing user: {tms_user_id}, name='{full_name}', split into first='{first_name}', last='{last_name}'")
 
         # Use PostgreSQL UPSERT (INSERT ... ON CONFLICT DO UPDATE)
         stmt = insert(User).values(**user_data)
