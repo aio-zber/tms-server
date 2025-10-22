@@ -17,9 +17,15 @@ from app.repositories.message_repo import (
     MessageReactionRepository
 )
 from app.core.tms_client import tms_client, TMSAPIException
-from app.core.cache import cache
+from app.core.cache import (
+    cache,
+    get_cached_user_data,
+    invalidate_unread_count_cache,
+    invalidate_total_unread_count_cache
+)
 from app.core.websocket import connection_manager
-from sqlalchemy import select
+from sqlalchemy import select, inspect
+from sqlalchemy.orm import object_session
 
 
 class MessageService:
@@ -150,9 +156,6 @@ class MessageService:
 
         # Fetch sender data from TMS
         # Check if sender is loaded (not lazy) to avoid greenlet_spawn error
-        from sqlalchemy.orm import object_session
-        from sqlalchemy.inspect import inspect
-
         sender_loaded = False
         sender_tms_id = None
 
@@ -360,7 +363,6 @@ class MessageService:
 
         # Invalidate unread count cache for all conversation members (except sender)
         # Following Messenger/Telegram pattern: new message = increment unread for recipients
-        from app.core.cache import invalidate_unread_count_cache, invalidate_total_unread_count_cache
         for member in members:
             if member.user_id != sender_id:
                 await invalidate_unread_count_cache(str(member.user_id), str(conversation_id))
@@ -569,7 +571,6 @@ class MessageService:
                 else:
                     # Fallback: Try individual cache lookup
                     try:
-                        from app.core.cache import get_cached_user_data
                         cached = await get_cached_user_data(sender_tms_id)
                         if cached:
                             message_dict["sender"] = cached
@@ -892,7 +893,6 @@ class MessageService:
         await self.db.commit()
 
         # Invalidate unread count cache (Messenger/Telegram pattern)
-        from app.core.cache import invalidate_unread_count_cache, invalidate_total_unread_count_cache
         await invalidate_unread_count_cache(str(user_id), str(conversation_id))
         await invalidate_total_unread_count_cache(str(user_id))
         print(f"[MESSAGE_SERVICE] 🗑️ Invalidated unread count cache for user {user_id} in conversation {conversation_id}")

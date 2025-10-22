@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Optional, List, Tuple, Dict, Any
 from uuid import UUID
 
-from sqlalchemy import select, func, and_, or_, desc, delete, literal, case
+from sqlalchemy import select, func, and_, or_, desc, delete, literal, case, literal_column
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, joinedload, aliased
 
