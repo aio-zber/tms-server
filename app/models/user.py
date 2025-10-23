@@ -77,6 +77,12 @@ class User(Base, UUIDMixin):
         doc="Profile image URL from TMS"
     )
 
+    contact_number: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+        doc="Contact number from TMS"
+    )
+
     # Role and organizational information
     role: Mapped[str | None] = mapped_column(
         String(50),
