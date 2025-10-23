@@ -98,11 +98,12 @@ class UserRepository(BaseRepository[User]):
         user_data = {
             "tms_user_id": tms_user_id,
             "email": tms_data.get("email"),
-            "username": tms_data.get("username") or tms_data.get("email", "").split("@")[0],  # Fallback to email prefix
+            "username": tms_data.get("username"),  # No fallback - use GCGC's actual username
             "first_name": first_name,
             "last_name": last_name,
             "middle_name": tms_data.get("middleName") or tms_data.get("middle_name"),
             "image": tms_data.get("image"),
+            "contact_number": tms_data.get("contactNumber") or tms_data.get("contact_number"),
             "role": tms_data.get("role"),
             "position_title": tms_data.get("positionTitle") or tms_data.get("position_title"),
             "division": tms_data.get("division"),
@@ -116,7 +117,7 @@ class UserRepository(BaseRepository[User]):
             "last_synced_at": datetime.utcnow(),
         }
 
-        print(f"[USER_REPO] 👤 Syncing user: {tms_user_id}, name='{full_name}', split into first='{first_name}', last='{last_name}'")
+        print(f"[USER_REPO] 👤 Syncing user: {tms_user_id}, username='{tms_data.get('username')}', name='{full_name}', first='{first_name}', last='{last_name}'")
 
         # Use PostgreSQL UPSERT (INSERT ... ON CONFLICT DO UPDATE)
         stmt = insert(User).values(**user_data)

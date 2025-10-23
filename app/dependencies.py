@@ -67,42 +67,111 @@ async def get_current_user(
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        # Step 3: Get user from local database (or create if first time)
+        # Step 3: Get user from local database (or sync from GCGC if needed)
+        # Telegram/Messenger pattern: Sync on first login + periodic refresh
         from app.models.user import User
+        from app.repositories.user_repo import UserRepository
+        from app.core.tms_client import tms_client, TMSAPIException
         from sqlalchemy import select
+        from datetime import datetime, timedelta
 
         result = await db.execute(
             select(User).where(User.tms_user_id == user_id)
         )
         local_user = result.scalar_one_or_none()
 
-        if not local_user:
-            # User doesn't exist in local DB yet - create minimal record
-            # Full profile sync happens separately via /api/v1/users/sync endpoint
-            local_user = User(
-                tms_user_id=user_id,
-                settings_json={}
-            )
-            db.add(local_user)
-            await db.commit()
-            await db.refresh(local_user)
+        # Option 3: Full auto-sync on login (Telegram/Messenger pattern)
+        # ================================================================
+        # Sync strategy:
+        # 1. New user (never synced) → ALWAYS sync all fields from GCGC
+        # 2. Stale data (> 24 hours) → ALWAYS sync to keep data fresh
+        # 3. Existing user (< 24 hours) → Skip sync, use cached data
+        #
+        # This ensures:
+        # - First login always gets complete profile (name, org, etc.)
+        # - Daily refreshes keep organizational data current
+        # - Performance optimized (skip unnecessary syncs)
+        should_sync = False
+        sync_reason = ""
 
-        # Step 4: Return user dict for route handlers
-        # All user profile data comes from local DB (synced from GCGC TMS)
+        if not local_user:
+            should_sync = True
+            sync_reason = "new user (first login)"
+        elif not local_user.last_synced_at:
+            should_sync = True
+            sync_reason = "missing sync timestamp"
+        elif datetime.utcnow() - local_user.last_synced_at > timedelta(hours=24):
+            should_sync = True
+            sync_reason = "stale data (>24h)"
+
+        if should_sync:
+            try:
+                # Fetch COMPLETE user profile from GCGC API
+                # This includes: name, email, org hierarchy, role, position, etc.
+                print(f"[AUTH] 🔄 Auto-syncing user {user_id} from GCGC ({sync_reason})...")
+                user_data = await tms_client.get_user_by_id_with_api_key(
+                    user_id,
+                    use_cache=True  # Cache to reduce redundant API calls
+                )
+
+                # Sync ALL fields to local database using comprehensive upsert
+                # This updates: first_name, last_name, email, username, image,
+                # role, position_title, division, department, section, etc.
+                user_repo = UserRepository(db)
+                local_user = await user_repo.upsert_from_tms(user_id, user_data)
+                await db.commit()
+                await db.refresh(local_user)
+
+                print(f"[AUTH] ✅ User synced successfully:")
+                print(f"       - Name: {local_user.first_name} {local_user.last_name}")
+                print(f"       - Email: {local_user.email}")
+                print(f"       - Username: {local_user.username}")
+                print(f"       - Role: {local_user.role}")
+                print(f"       - Position: {local_user.position_title}")
+                print(f"       - Division: {local_user.division}")
+                print(f"       - Department: {local_user.department}")
+
+            except TMSAPIException as e:
+                print(f"[AUTH] ⚠️ GCGC API unavailable, using fallback: {e}")
+
+                # Fallback: Create minimal user from JWT if GCGC is down
+                # This ensures the app keeps working even if GCGC is unavailable
+                if not local_user:
+                    print(f"[AUTH] 📝 Creating minimal user from JWT token")
+                    local_user = User(
+                        tms_user_id=user_id,
+                        email=jwt_payload.get("email"),
+                        username=jwt_payload.get("username"),
+                        first_name=jwt_payload.get("given_name"),
+                        last_name=jwt_payload.get("family_name"),
+                        settings_json={}
+                    )
+                    db.add(local_user)
+                    await db.commit()
+                    await db.refresh(local_user)
+                    print(f"[AUTH] ✅ Minimal user created from JWT")
+        else:
+            print(f"[AUTH] ✓ Using cached user data for {user_id} (synced {local_user.last_synced_at})")
+
+        # Step 4: Return user dict with data from local DB
+        # Now we have complete user profile from GCGC sync!
         user_dict = {
             "id": local_user.tms_user_id,
             "tms_user_id": local_user.tms_user_id,
             "local_user_id": str(local_user.id),
-            "email": jwt_payload.get("email"),  # From JWT
-            "username": jwt_payload.get("username"),  # From JWT
-            "name": jwt_payload.get("name"),  # From JWT
-            "display_name": jwt_payload.get("name"),  # From JWT
-            "image": jwt_payload.get("picture"),  # From JWT
-            # Note: Role and other profile fields would come from local DB if needed
-            # For now, we use JWT data for basic info and local DB for messaging-specific data
-            "role": "MEMBER",  # Default role (can be enhanced later)
-            "is_active": True,
-            "is_leader": False,
+            "email": local_user.email or jwt_payload.get("email"),
+            "username": local_user.username or jwt_payload.get("username"),
+            "first_name": local_user.first_name,
+            "last_name": local_user.last_name,
+            "name": f"{local_user.first_name or ''} {local_user.last_name or ''}".strip() or jwt_payload.get("name"),
+            "display_name": f"{local_user.first_name or ''} {local_user.last_name or ''}".strip() or jwt_payload.get("name"),
+            "image": local_user.image or jwt_payload.get("picture"),
+            "role": local_user.role or "MEMBER",
+            "position_title": local_user.position_title,
+            "division": local_user.division,
+            "department": local_user.department,
+            "is_active": local_user.is_active,
+            "is_leader": local_user.is_leader,
         }
         return user_dict
 
