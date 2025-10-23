@@ -676,6 +676,8 @@ class ConversationService:
             HTTPException: If search fails
         """
         try:
+            print(f"[SEARCH_SERVICE] 🔍 Starting search for user {str(user_id)[:8]} with query: '{query}'")
+
             # Search using repository
             conversations = await self.conversation_repo.search_conversations(
                 user_id=user_id,
@@ -683,18 +685,30 @@ class ConversationService:
                 limit=limit
             )
 
+            print(f"[SEARCH_SERVICE] 📦 Repository returned {len(conversations)} conversations")
+
             # Enrich conversations with user data
             enriched_conversations = []
-            for conversation in conversations:
-                enriched = await self._enrich_conversation_with_user_data(
-                    conversation=conversation,
-                    user_id=user_id
-                )
-                enriched_conversations.append(enriched)
+            for i, conversation in enumerate(conversations):
+                print(f"[SEARCH_SERVICE] 🎨 Enriching conversation {i+1}/{len(conversations)}: {str(conversation.id)[:8]} ({conversation.type})")
 
+                try:
+                    enriched = await self._enrich_conversation_with_user_data(
+                        conversation=conversation,
+                        user_id=user_id
+                    )
+                    enriched_conversations.append(enriched)
+                    print(f"[SEARCH_SERVICE] ✅ Enriched: display_name='{enriched.get('display_name', 'N/A')}', members={len(enriched.get('members', []))}")
+                except Exception as enrich_error:
+                    print(f"[SEARCH_SERVICE] ❌ Enrichment failed for conversation {str(conversation.id)[:8]}: {str(enrich_error)}")
+                    # Continue to next conversation instead of failing entire search
+                    continue
+
+            print(f"[SEARCH_SERVICE] 📤 Returning {len(enriched_conversations)} enriched conversations to API")
             return enriched_conversations
 
         except Exception as e:
+            print(f"[SEARCH_SERVICE] ❌ Search failed with error: {type(e).__name__}: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to search conversations: {str(e)}"

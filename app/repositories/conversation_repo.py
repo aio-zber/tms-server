@@ -313,22 +313,28 @@ class ConversationRepository(BaseRepository[Conversation]):
                             Conversation.name.isnot(None),
                             func.lower(Conversation.name).like(f"%{search_term}%")
                         ),
-                        # Member name match (works for both groups and DMs)
-                        func.lower(
-                            func.concat(MemberUser.first_name, ' ', MemberUser.last_name)
-                        ).like(f"%{search_term}%"),
+                        # Member name match - EXCLUDE current user (works for both groups and DMs)
+                        and_(
+                            MemberUser.id != user_id,  # Don't match own name
+                            func.lower(
+                                func.concat(MemberUser.first_name, ' ', MemberUser.last_name)
+                            ).like(f"%{search_term}%")
+                        ),
                         # Trigram similarity for conversation name
                         and_(
                             Conversation.name.isnot(None),
                             func.similarity(func.lower(Conversation.name), search_term) > 0.3
                         ),
-                        # Trigram similarity for member names (lower threshold for DMs)
-                        func.similarity(
-                            func.lower(
-                                func.concat(MemberUser.first_name, ' ', MemberUser.last_name)
-                            ),
-                            search_term
-                        ) > 0.2  # Lower threshold to catch more DM matches
+                        # Trigram similarity for member names - EXCLUDE current user (lower threshold for DMs)
+                        and_(
+                            MemberUser.id != user_id,  # Don't match own name
+                            func.similarity(
+                                func.lower(
+                                    func.concat(MemberUser.first_name, ' ', MemberUser.last_name)
+                                ),
+                                search_term
+                            ) > 0.2  # Lower threshold to catch more DM matches
+                        )
                     )
                 )
             )
@@ -337,6 +343,8 @@ class ConversationRepository(BaseRepository[Conversation]):
         result = await self.db.execute(name_match_query)
         conv_ids_from_names = [row[0] for row in result.all()]
         print(f"[SEARCH] 📝 Found {len(conv_ids_from_names)} conversations from name/member matches")
+        if conv_ids_from_names:
+            print(f"[SEARCH] 📝 Name match conversation IDs: {[str(cid)[:8] for cid in conv_ids_from_names]}")
 
         # Step 2: Get conversation IDs from message content matches
         message_match_query = (
@@ -363,13 +371,18 @@ class ConversationRepository(BaseRepository[Conversation]):
         result = await self.db.execute(message_match_query)
         conv_ids_from_messages = [row[0] for row in result.all()]
         print(f"[SEARCH] 💬 Found {len(conv_ids_from_messages)} conversations from message content matches")
+        if conv_ids_from_messages:
+            print(f"[SEARCH] 💬 Message match conversation IDs: {[str(cid)[:8] for cid in conv_ids_from_messages]}")
 
         # Step 3: Merge and deduplicate conversation IDs
         all_conv_ids = list(set(conv_ids_from_names + conv_ids_from_messages))
+        print(f"[SEARCH] 🔄 Merged to {len(all_conv_ids)} unique conversation IDs")
 
         if not all_conv_ids:
             print(f"[SEARCH] ⚠️ No conversations found for query: '{search_term}'")
             return []
+
+        print(f"[SEARCH] 📋 All unique conversation IDs: {[str(cid)[:8] for cid in all_conv_ids]}")
 
         # Step 4: Fetch full conversation objects with relations
         # Order by updated_at (most recent first)
