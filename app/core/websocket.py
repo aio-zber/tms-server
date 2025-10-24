@@ -148,6 +148,47 @@ class ConnectionManager:
                     from app.core.cache import set_user_presence
                     await set_user_presence(str(user.id), 'online')
 
+                    # Auto-mark ALL messages as delivered when user comes online
+                    # Telegram/Messenger pattern: Messages are delivered when app is online
+                    try:
+                        from app.services.message_service import MessageService
+                        from app.models.conversation import ConversationMember
+                        from sqlalchemy import select
+
+                        # Get all conversations user is a member of
+                        result = await db.execute(
+                            select(ConversationMember.conversation_id)
+                            .where(ConversationMember.user_id == user.id)
+                        )
+                        conversation_ids = [row[0] for row in result.fetchall()]
+
+                        logger.info(f"[connect] User {user.id} is member of {len(conversation_ids)} conversations")
+
+                        # Mark messages as delivered in each conversation
+                        message_service = MessageService(db)
+                        total_delivered = 0
+
+                        for conv_id in conversation_ids:
+                            try:
+                                delivery_result = await message_service.mark_messages_delivered(
+                                    conversation_id=conv_id,
+                                    user_id=user.id
+                                )
+                                count = delivery_result.get('updated_count', 0)
+                                total_delivered += count
+
+                                if count > 0:
+                                    logger.info(f"[connect] Marked {count} messages as delivered in conversation {conv_id}")
+                            except Exception as conv_error:
+                                logger.error(f"[connect] Failed to mark delivered in conversation {conv_id}: {conv_error}")
+
+                        if total_delivered > 0:
+                            logger.info(f"[connect] Auto-marked {total_delivered} total messages as delivered across all conversations")
+
+                    except Exception as delivery_error:
+                        # Don't fail connection if delivery marking fails
+                        logger.error(f"[connect] Failed to auto-mark messages as delivered: {delivery_error}", exc_info=True)
+
                     return True
 
             except Exception as e:
@@ -277,6 +318,30 @@ class ConnectionManager:
                 logger.info(f"[join_conversation] SUCCESS: User {user_id} joined conversation {conversation_id}")
                 logger.info(f"[join_conversation] Active rooms for conversation {conversation_id}: {len(self.conversation_rooms[conversation_id])} members")
                 logger.info(f"[join_conversation] Our internal tracking - SIDs: {self.conversation_rooms[conversation_id]}")
+
+                # Auto-mark messages as delivered (Telegram/Messenger pattern)
+                # When user opens a conversation, all undelivered messages transition to "delivered"
+                try:
+                    from app.services.message_service import MessageService
+
+                    message_service = MessageService(db)
+                    result = await message_service.mark_messages_delivered(
+                        conversation_id=conversation_id,
+                        user_id=user_id
+                    )
+
+                    if result.get('updated_count', 0) > 0:
+                        logger.info(f"[join_conversation] Auto-marked {result['updated_count']} messages as delivered")
+
+                        # Broadcast delivery status to conversation room
+                        await self.sio.emit('messages_delivered', {
+                            'user_id': str(user_id),
+                            'conversation_id': str(conversation_id),
+                            'count': result['updated_count']
+                        }, room=room_name)
+                except Exception as delivery_error:
+                    # Don't fail join if delivery marking fails
+                    logger.error(f"[join_conversation] Failed to auto-mark delivered: {delivery_error}", exc_info=True)
 
                 await self.sio.emit('joined_conversation', {
                     'conversation_id': str(conversation_id)
