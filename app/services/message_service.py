@@ -169,7 +169,16 @@ class MessageService:
             else:
                 return "sent"
         else:
-            # For received messages, don't show status (or show "sent" as placeholder)
+            # For received messages, return current user's own status
+            # This is needed for frontend to track if they've read the message
+            if current_user_id:
+                # Find current user's status in the statuses array
+                user_status = next(
+                    (s.status for s in message.statuses if s.user_id == current_user_id),
+                    MessageStatusType.SENT  # Default if not found
+                )
+                # Return the string value
+                return user_status.value if hasattr(user_status, 'value') else str(user_status)
             return "sent"
 
     async def _enrich_message_with_user_data(
