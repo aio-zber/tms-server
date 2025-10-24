@@ -148,46 +148,9 @@ class ConnectionManager:
                     from app.core.cache import set_user_presence
                     await set_user_presence(str(user.id), 'online')
 
-                    # Auto-mark ALL messages as delivered when user comes online
-                    # Telegram/Messenger pattern: Messages are delivered when app is online
-                    try:
-                        from app.services.message_service import MessageService
-                        from app.models.conversation import ConversationMember
-                        from sqlalchemy import select
-
-                        # Get all conversations user is a member of
-                        result = await db.execute(
-                            select(ConversationMember.conversation_id)
-                            .where(ConversationMember.user_id == user.id)
-                        )
-                        conversation_ids = [row[0] for row in result.fetchall()]
-
-                        logger.info(f"[connect] User {user.id} is member of {len(conversation_ids)} conversations")
-
-                        # Mark messages as delivered in each conversation
-                        message_service = MessageService(db)
-                        total_delivered = 0
-
-                        for conv_id in conversation_ids:
-                            try:
-                                delivery_result = await message_service.mark_messages_delivered(
-                                    conversation_id=conv_id,
-                                    user_id=user.id
-                                )
-                                count = delivery_result.get('updated_count', 0)
-                                total_delivered += count
-
-                                if count > 0:
-                                    logger.info(f"[connect] Marked {count} messages as delivered in conversation {conv_id}")
-                            except Exception as conv_error:
-                                logger.error(f"[connect] Failed to mark delivered in conversation {conv_id}: {conv_error}")
-
-                        if total_delivered > 0:
-                            logger.info(f"[connect] Auto-marked {total_delivered} total messages as delivered across all conversations")
-
-                    except Exception as delivery_error:
-                        # Don't fail connection if delivery marking fails
-                        logger.error(f"[connect] Failed to auto-mark messages as delivered: {delivery_error}", exc_info=True)
+                    # NOTE: Auto-delivery removed from connect handler
+                    # Telegram/Messenger pattern: Mark as delivered when user OPENS conversation
+                    # This happens in join_conversation handler instead (more accurate + less DB load)
 
                     return True
 
@@ -567,6 +530,24 @@ class ConnectionManager:
             'user_id': str(user_id),
             'emoji': emoji
         }, room=room)
+
+    async def broadcast_to_conversation(
+        self,
+        conversation_id: UUID,
+        data: Dict[str, Any]
+    ):
+        """
+        Broadcast generic data to conversation room.
+
+        Used for bulk operations like messages_delivered events.
+
+        Args:
+            conversation_id: Conversation UUID
+            data: Data to broadcast (must include 'type' field for event routing)
+        """
+        room = f"conversation:{conversation_id}"
+        event_type = data.get('type', 'conversation_update')
+        await self.sio.emit(event_type, data, room=room)
 
     def get_asgi_app(self, fastapi_app):
         """
