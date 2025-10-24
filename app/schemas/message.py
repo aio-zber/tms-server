@@ -192,6 +192,10 @@ class MessageResponse(BaseModel):
     statuses: List[MessageStatusResponse] = Field(default_factory=list)
     reply_to: Optional["MessageResponse"] = Field(None, serialization_alias="replyTo")
 
+    # Computed aggregated status field (Telegram/Messenger pattern)
+    # This is computed by the service layer and represents the overall message status
+    status: Optional[str] = Field(None, description="Aggregated message status: sent, delivered, or read")
+
     model_config = ConfigDict(
         from_attributes=True,
         populate_by_name=True,
@@ -210,7 +214,8 @@ class MessageResponse(BaseModel):
                 "updatedAt": None,
                 "deletedAt": None,
                 "reactions": [],
-                "statuses": []
+                "statuses": [],
+                "status": "sent"
             }
         }
     )
