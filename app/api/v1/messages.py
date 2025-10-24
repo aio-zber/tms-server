@@ -436,30 +436,85 @@ async def mark_messages_read(
     - **message_ids**: List of message UUIDs to mark as read
     - **conversation_id**: UUID of the conversation
     """
-    service = MessageService(db)
+    import logging
+    import traceback
+    logger = logging.getLogger(__name__)
 
-    # Get user_id from local user record
-    from app.models.user import User
-    from sqlalchemy import select
-
-    result = await db.execute(
-        select(User).where(User.tms_user_id == current_user["tms_user_id"])
-    )
-    user = result.scalar_one_or_none()
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found in local database"
+    try:
+        # LOG: Incoming request
+        logger.info(
+            f"[MARK_READ] 📬 Incoming request: "
+            f"user={current_user.get('tms_user_id', 'unknown')}, "
+            f"conversation_id={request_data.conversation_id}, "
+            f"message_count={len(request_data.message_ids)}, "
+            f"message_ids={[str(mid)[:8] + '...' for mid in request_data.message_ids[:5]]}"
         )
 
-    result = await service.mark_messages_read(
-        message_ids=request_data.message_ids,
-        user_id=user.id,
-        conversation_id=request_data.conversation_id
-    )
+        service = MessageService(db)
 
-    return result
+        # LOG: User lookup
+        logger.info(f"[MARK_READ] 🔍 Looking up user: tms_user_id={current_user['tms_user_id']}")
+
+        # Get user_id from local user record
+        from app.models.user import User
+        from sqlalchemy import select
+
+        result = await db.execute(
+            select(User).where(User.tms_user_id == current_user["tms_user_id"])
+        )
+        user = result.scalar_one_or_none()
+
+        if not user:
+            logger.error(
+                f"[MARK_READ] ❌ User not found in local database: "
+                f"tms_user_id={current_user['tms_user_id']}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found in local database"
+            )
+
+        logger.info(
+            f"[MARK_READ] ✅ User found: "
+            f"local_id={user.id}, email={user.email}, name={user.first_name} {user.last_name}"
+        )
+
+        # LOG: Service call
+        logger.info(
+            f"[MARK_READ] 🚀 Calling service.mark_messages_read: "
+            f"user_id={user.id}, conversation_id={request_data.conversation_id}"
+        )
+
+        result = await service.mark_messages_read(
+            message_ids=request_data.message_ids,
+            user_id=user.id,
+            conversation_id=request_data.conversation_id
+        )
+
+        logger.info(
+            f"[MARK_READ] ✅ Success: updated_count={result['updated_count']}, "
+            f"success={result['success']}"
+        )
+
+        return result
+
+    except HTTPException:
+        # Re-raise HTTP exceptions (already logged above)
+        raise
+    except Exception as e:
+        # LOG: Unexpected errors with full traceback
+        error_traceback = traceback.format_exc()
+        logger.error(
+            f"[MARK_READ] ❌ UNEXPECTED ERROR: {type(e).__name__}: {str(e)}\n"
+            f"Request data: conversation_id={request_data.conversation_id}, "
+            f"message_ids={request_data.message_ids}\n"
+            f"User: {current_user.get('tms_user_id')}\n"
+            f"Traceback:\n{error_traceback}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to mark messages as read: {type(e).__name__}: {str(e)}"
+        )
 
 
 @router.post(

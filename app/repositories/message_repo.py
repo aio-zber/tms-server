@@ -381,34 +381,54 @@ class MessageStatusRepository(BaseRepository[MessageStatus]):
         Returns:
             Message status instance
         """
-        # Check if status exists
-        result = await self.db.execute(
-            select(MessageStatus).where(
-                and_(
-                    MessageStatus.message_id == message_id,
-                    MessageStatus.user_id == user_id
+        import logging
+        logger = logging.getLogger(__name__)
+
+        try:
+            # Check if status exists
+            result = await self.db.execute(
+                select(MessageStatus).where(
+                    and_(
+                        MessageStatus.message_id == message_id,
+                        MessageStatus.user_id == user_id
+                    )
                 )
             )
-        )
-        existing_status = result.scalar_one_or_none()
+            existing_status = result.scalar_one_or_none()
 
-        if existing_status:
-            # Update existing status
-            existing_status.status = status
-            existing_status.timestamp = datetime.utcnow()
-            await self.db.flush()
-            return existing_status
-        else:
-            # Create new status
-            new_status = MessageStatus(
-                message_id=message_id,
-                user_id=user_id,
-                status=status,
-                timestamp=datetime.utcnow()
+            if existing_status:
+                # Update existing status
+                logger.debug(
+                    f"[MESSAGE_REPO] 🔄 Updating existing status: "
+                    f"message_id={str(message_id)[:8]}..., user_id={str(user_id)[:8]}..., "
+                    f"old_status={existing_status.status}, new_status={status}"
+                )
+                existing_status.status = status
+                existing_status.timestamp = datetime.utcnow()
+                await self.db.flush()
+                return existing_status
+            else:
+                # Create new status
+                logger.debug(
+                    f"[MESSAGE_REPO] ➕ Creating new status: "
+                    f"message_id={str(message_id)[:8]}..., user_id={str(user_id)[:8]}..., status={status}"
+                )
+                new_status = MessageStatus(
+                    message_id=message_id,
+                    user_id=user_id,
+                    status=status,
+                    timestamp=datetime.utcnow()
+                )
+                self.db.add(new_status)
+                await self.db.flush()
+                return new_status
+        except Exception as e:
+            logger.error(
+                f"[MESSAGE_REPO] ❌ upsert_status failed: "
+                f"message_id={str(message_id)[:8]}..., user_id={str(user_id)[:8]}..., status={status}, "
+                f"error={type(e).__name__}: {str(e)}"
             )
-            self.db.add(new_status)
-            await self.db.flush()
-            return new_status
+            raise
 
     async def mark_messages_as_delivered(
         self,
@@ -446,10 +466,29 @@ class MessageStatusRepository(BaseRepository[MessageStatus]):
         Returns:
             Number of statuses updated
         """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        logger.info(
+            f"[MESSAGE_REPO] 📝 mark_messages_as_read: "
+            f"user_id={user_id}, message_count={len(message_ids)}"
+        )
+
         count = 0
-        for message_id in message_ids:
-            await self.upsert_status(message_id, user_id, MessageStatusType.READ)
-            count += 1
+        for idx, message_id in enumerate(message_ids):
+            try:
+                await self.upsert_status(message_id, user_id, MessageStatusType.READ)
+                count += 1
+                if (idx + 1) % 10 == 0:  # Log every 10 messages
+                    logger.info(f"[MESSAGE_REPO] ⏳ Processed {idx + 1}/{len(message_ids)} messages")
+            except Exception as e:
+                logger.error(
+                    f"[MESSAGE_REPO] ❌ Failed to upsert status for message {message_id}: "
+                    f"{type(e).__name__}: {str(e)}"
+                )
+                # Continue processing other messages instead of failing completely
+
+        logger.info(f"[MESSAGE_REPO] ✅ Marked {count}/{len(message_ids)} messages as read")
         return count
 
     async def mark_messages_as_delivered(

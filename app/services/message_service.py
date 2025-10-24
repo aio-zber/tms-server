@@ -962,58 +962,136 @@ class MessageService:
         Raises:
             HTTPException: If no access
         """
-        # Verify user is conversation member
+        import logging
+        logger = logging.getLogger(__name__)
+
+        logger.info(
+            f"[MESSAGE_SERVICE] 📝 mark_messages_read called: "
+            f"user_id={user_id}, conversation_id={conversation_id}, "
+            f"message_count={len(message_ids)}"
+        )
+
+        # LOG: Membership verification
+        logger.info(f"[MESSAGE_SERVICE] 🔐 Verifying conversation membership...")
         if not await self._verify_conversation_membership(conversation_id, user_id):
+            logger.warning(
+                f"[MESSAGE_SERVICE] ⛔ Membership verification failed: "
+                f"user_id={user_id}, conversation_id={conversation_id}"
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You are not a member of this conversation"
             )
+        logger.info(f"[MESSAGE_SERVICE] ✅ Membership verified")
 
-        # Mark messages as read in message_status table
-        count = await self.status_repo.mark_messages_as_read(message_ids, user_id)
+        # LOG: Database update
+        logger.info(f"[MESSAGE_SERVICE] 💾 Updating message statuses to READ...")
+        try:
+            count = await self.status_repo.mark_messages_as_read(message_ids, user_id)
+            logger.info(f"[MESSAGE_SERVICE] ✅ Updated {count} message statuses")
+        except Exception as e:
+            logger.error(
+                f"[MESSAGE_SERVICE] ❌ Failed to update message statuses: "
+                f"{type(e).__name__}: {str(e)}"
+            )
+            raise
 
-        # Update conversation_members.last_read_at to latest message timestamp
-        # This ensures unread count calculation stays accurate
+        # LOG: last_read_at update
         if message_ids:
-            # Get the latest message timestamp from the batch
-            latest_message_query = (
-                select(Message.created_at)
-                .where(Message.id.in_(message_ids))
-                .order_by(desc(Message.created_at))
-                .limit(1)
-            )
-            result = await self.db.execute(latest_message_query)
-            latest_timestamp = result.scalar_one_or_none()
+            logger.info(f"[MESSAGE_SERVICE] 📅 Updating last_read_at timestamp...")
+            try:
+                # Get the latest message timestamp from the batch
+                latest_message_query = (
+                    select(Message.created_at)
+                    .where(Message.id.in_(message_ids))
+                    .order_by(desc(Message.created_at))
+                    .limit(1)
+                )
+                result = await self.db.execute(latest_message_query)
+                latest_timestamp = result.scalar_one_or_none()
 
-            if latest_timestamp:
-                # Update last_read_at for this conversation member
-                from app.repositories.conversation_repo import ConversationMemberRepository
-                member_repo = ConversationMemberRepository(self.db)
-                member = await member_repo.get_member(conversation_id, user_id)
+                if latest_timestamp:
+                    logger.info(f"[MESSAGE_SERVICE] ⏰ Latest message timestamp: {latest_timestamp}")
 
-                if member:
-                    # Only update if new timestamp is later than current last_read_at
-                    if member.last_read_at is None or latest_timestamp > member.last_read_at:
-                        member.last_read_at = latest_timestamp
-                        print(f"[MESSAGE_SERVICE] 📅 Updated last_read_at to {latest_timestamp} for user {user_id} in conversation {conversation_id}")
+                    # Update last_read_at for this conversation member
+                    from app.repositories.conversation_repo import ConversationMemberRepository
+                    member_repo = ConversationMemberRepository(self.db)
+                    member = await member_repo.get_member(conversation_id, user_id)
+
+                    if member:
+                        # Only update if new timestamp is later than current last_read_at
+                        if member.last_read_at is None or latest_timestamp > member.last_read_at:
+                            member.last_read_at = latest_timestamp
+                            logger.info(
+                                f"[MESSAGE_SERVICE] 📅 Updated last_read_at: "
+                                f"{member.last_read_at} → {latest_timestamp}"
+                            )
+                        else:
+                            logger.info(
+                                f"[MESSAGE_SERVICE] ⏭️ Skipping last_read_at update "
+                                f"(current={member.last_read_at}, new={latest_timestamp})"
+                            )
                     else:
-                        print(f"[MESSAGE_SERVICE] ⏭️ Skipping last_read_at update (current: {member.last_read_at}, new: {latest_timestamp})")
+                        logger.warning(
+                            f"[MESSAGE_SERVICE] ⚠️ ConversationMember not found: "
+                            f"conversation_id={conversation_id}, user_id={user_id}"
+                        )
+                else:
+                    logger.warning(f"[MESSAGE_SERVICE] ⚠️ No latest timestamp found for messages")
+            except Exception as e:
+                logger.error(
+                    f"[MESSAGE_SERVICE] ❌ Failed to update last_read_at: "
+                    f"{type(e).__name__}: {str(e)}"
+                )
+                # Don't raise - this is not critical, continue with commit
 
-        await self.db.commit()
-
-        # Invalidate unread count cache (Messenger/Telegram pattern)
-        await invalidate_unread_count_cache(str(user_id), str(conversation_id))
-        await invalidate_total_unread_count_cache(str(user_id))
-        print(f"[MESSAGE_SERVICE] 🗑️ Invalidated unread count cache for user {user_id} in conversation {conversation_id}")
-
-        # Broadcast message status updates via WebSocket
-        for message_id in message_ids:
-            await self.ws_manager.broadcast_message_status(
-                conversation_id,
-                message_id,
-                user_id,
-                MessageStatusType.READ.value
+        # LOG: Database commit
+        logger.info(f"[MESSAGE_SERVICE] 💾 Committing transaction...")
+        try:
+            await self.db.commit()
+            logger.info(f"[MESSAGE_SERVICE] ✅ Transaction committed")
+        except Exception as e:
+            logger.error(
+                f"[MESSAGE_SERVICE] ❌ Database commit failed: "
+                f"{type(e).__name__}: {str(e)}"
             )
+            raise
+
+        # LOG: Cache invalidation
+        logger.info(f"[MESSAGE_SERVICE] 🗑️ Invalidating cache...")
+        try:
+            await invalidate_unread_count_cache(str(user_id), str(conversation_id))
+            await invalidate_total_unread_count_cache(str(user_id))
+            logger.info(f"[MESSAGE_SERVICE] ✅ Cache invalidated")
+        except Exception as e:
+            logger.error(
+                f"[MESSAGE_SERVICE] ⚠️ Cache invalidation failed (non-critical): "
+                f"{type(e).__name__}: {str(e)}"
+            )
+            # Don't raise - cache invalidation failure is not critical
+
+        # LOG: WebSocket broadcast
+        logger.info(f"[MESSAGE_SERVICE] 📡 Broadcasting status updates via WebSocket...")
+        try:
+            for message_id in message_ids:
+                await self.ws_manager.broadcast_message_status(
+                    conversation_id,
+                    message_id,
+                    user_id,
+                    MessageStatusType.READ.value
+                )
+            logger.info(f"[MESSAGE_SERVICE] ✅ Broadcasted {len(message_ids)} status updates")
+        except Exception as e:
+            logger.error(
+                f"[MESSAGE_SERVICE] ⚠️ WebSocket broadcast failed (non-critical): "
+                f"{type(e).__name__}: {str(e)}"
+            )
+            # Don't raise - broadcast failure is not critical
+
+        logger.info(
+            f"[MESSAGE_SERVICE] ✅ mark_messages_read completed successfully: "
+            f"updated_count={count}"
+        )
 
         return {
             "success": True,
