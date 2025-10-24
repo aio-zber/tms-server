@@ -691,4 +691,5 @@ class ConversationMemberRepository:
         count = result.scalar() or 0
 
         print(f"[UNREAD_COUNT] ✅ Unread count: {count}")
+        print(f"[UNREAD_COUNT] 📊 Final result: {count} unread messages (last_read_at={member.last_read_at})")
         return count
