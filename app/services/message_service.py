@@ -108,18 +108,84 @@ class MessageService:
             conversation.updated_at = datetime.utcnow()
             await self.db.flush()
 
+    def _compute_message_status(
+        self,
+        message: Message,
+        current_user_id: Optional[UUID] = None
+    ) -> str:
+        """
+        Compute single aggregated status field for message (Telegram/Messenger pattern).
+
+        Logic:
+        - For sent messages (current_user is sender): Aggregate all recipients' statuses
+          - If ANY recipient has "sent" → return "sent"
+          - If ALL have "delivered" or better → return "delivered"
+          - If ALL have "read" → return "read"
+        - For received messages: Return "sent" (recipients don't track their own status)
+        - Default: "sent"
+
+        Args:
+            message: Message instance with loaded statuses
+            current_user_id: Optional current user UUID (for determining sender)
+
+        Returns:
+            Status string: "sent", "delivered", or "read"
+        """
+        # If no statuses, default to sent
+        if not message.statuses:
+            return "sent"
+
+        # If current user is the sender, compute aggregated status from recipients
+        is_sender = current_user_id and message.sender_id == current_user_id
+
+        if is_sender:
+            # Get all recipient statuses (exclude sender's own status)
+            recipient_statuses = [
+                s.status for s in message.statuses
+                if s.user_id != message.sender_id
+            ]
+
+            if not recipient_statuses:
+                # No recipients yet (shouldn't happen in normal flow)
+                return "sent"
+
+            # Aggregate using "least common denominator" approach
+            # If ANY recipient is at "sent", show "sent"
+            # If ALL are "delivered" or "read", show "delivered"
+            # If ALL are "read", show "read"
+            has_sent = any(s == MessageStatusType.SENT for s in recipient_statuses)
+            all_read = all(s == MessageStatusType.READ for s in recipient_statuses)
+            all_delivered_or_read = all(
+                s in (MessageStatusType.DELIVERED, MessageStatusType.READ)
+                for s in recipient_statuses
+            )
+
+            if has_sent:
+                return "sent"
+            elif all_read:
+                return "read"
+            elif all_delivered_or_read:
+                return "delivered"
+            else:
+                return "sent"
+        else:
+            # For received messages, don't show status (or show "sent" as placeholder)
+            return "sent"
+
     async def _enrich_message_with_user_data(
         self,
-        message: Message
+        message: Message,
+        current_user_id: Optional[UUID] = None
     ) -> Dict[str, Any]:
         """
-        Enrich message with TMS user data.
+        Enrich message with TMS user data and compute aggregated status.
 
         Args:
             message: Message instance
+            current_user_id: Optional current user UUID for status computation
 
         Returns:
-            Message dict with enriched user data
+            Message dict with enriched user data and computed status field
         """
         message_dict = {
             "id": message.id,
@@ -151,7 +217,9 @@ class MessageService:
                     "timestamp": s.timestamp
                 }
                 for s in message.statuses
-            ]
+            ],
+            # Add computed status field (Telegram/Messenger pattern)
+            "status": self._compute_message_status(message, current_user_id)
         }
 
         # Fetch sender data from TMS
@@ -218,7 +286,8 @@ class MessageService:
                 try:
                     print(f"[ENRICH] Recursively enriching reply_to message: {message.reply_to.id}")
                     message_dict["reply_to"] = await self._enrich_message_with_user_data(
-                        message.reply_to
+                        message.reply_to,
+                        current_user_id  # Pass through for consistent status computation
                     )
                 except Exception as e:
                     print(f"[MESSAGE_SERVICE] ❌ Failed to enrich reply_to: {e}")
@@ -374,8 +443,8 @@ class MessageService:
         print(f"[MESSAGE_SERVICE] 🔄 Message reloaded after commit: id={message.id}")
         print(f"[MESSAGE_SERVICE] 🔄 Reloaded timestamps: created_at={message.created_at}, updated_at={message.updated_at}, deleted_at={message.deleted_at}")
 
-        # Enrich with TMS user data
-        enriched_message = await self._enrich_message_with_user_data(message)
+        # Enrich with TMS user data (pass sender_id as user_id for status computation)
+        enriched_message = await self._enrich_message_with_user_data(message, sender_id)
 
         # Convert UUIDs and datetimes to strings for JSON serialization
         def convert_to_json_serializable(obj):
@@ -448,7 +517,7 @@ class MessageService:
                 detail="You don't have access to this message"
             )
 
-        return await self._enrich_message_with_user_data(message)
+        return await self._enrich_message_with_user_data(message, user_id)
 
     async def get_conversation_messages(
         self,
@@ -559,7 +628,9 @@ class MessageService:
                         "timestamp": s.timestamp
                     }
                     for s in message.statuses
-                ]
+                ],
+                # Add computed status field (Telegram/Messenger pattern)
+                "status": self._compute_message_status(message, user_id)
             }
 
             # Use pre-fetched user data
@@ -593,7 +664,8 @@ class MessageService:
                 # (these are typically 1-2 messages, not worth batch optimization)
                 try:
                     message_dict["reply_to"] = await self._enrich_message_with_user_data(
-                        message.reply_to
+                        message.reply_to,
+                        user_id  # Pass through for consistent status computation
                     )
                     print(f"[MESSAGE_SERVICE] ✅ Successfully enriched reply_to for message {message.id}")
                 except Exception as e:
@@ -681,7 +753,7 @@ class MessageService:
 
         # Reload with relations and enrich
         updated_message = await self.message_repo.get_with_relations(message_id)
-        enriched_message = await self._enrich_message_with_user_data(updated_message)
+        enriched_message = await self._enrich_message_with_user_data(updated_message, user_id)
 
         # Broadcast message edit via WebSocket
         await self.ws_manager.broadcast_message_edited(
@@ -1063,7 +1135,7 @@ class MessageService:
                 user_id
             ):
                 enriched_messages.append(
-                    await self._enrich_message_with_user_data(message)
+                    await self._enrich_message_with_user_data(message, user_id)
                 )
 
         return enriched_messages
