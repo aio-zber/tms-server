@@ -24,7 +24,7 @@ from app.core.cache import (
     invalidate_total_unread_count_cache
 )
 from app.core.websocket import connection_manager
-from sqlalchemy import select, inspect
+from sqlalchemy import select, inspect, desc
 from sqlalchemy.orm import object_session
 
 
