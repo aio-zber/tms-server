@@ -183,10 +183,13 @@ async def get_current_user(
         )
     except Exception as e:
         # Log unexpected errors but don't expose internal details
-        print(f"Authentication error: {e}")
+        import traceback
+        error_traceback = traceback.format_exc()
+        print(f"❌ [AUTH] Unexpected authentication error: {type(e).__name__}: {str(e)}")
+        print(f"📋 [AUTH] Full traceback:\n{error_traceback}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Authentication failed due to internal error",
+            detail=f"Authentication failed: {type(e).__name__}",
         )
 
 
