@@ -567,8 +567,9 @@ class MessageStatusRepository(BaseRepository[MessageStatus]):
                     )
                 )
                 .values(
-                    status=MessageStatusType.DELIVERED,
-                    updated_at=datetime.utcnow()
+                    status=MessageStatusType.DELIVERED
+                    # MessageStatus model only has: message_id, user_id, status, timestamp
+                    # No updated_at column exists
                 )
             )
             result = await self.db.execute(update_stmt)
