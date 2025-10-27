@@ -191,6 +191,7 @@ class MessageResponse(BaseModel):
     reactions: List[MessageReactionResponse] = Field(default_factory=list)
     statuses: List[MessageStatusResponse] = Field(default_factory=list)
     reply_to: Optional["MessageResponse"] = Field(None, serialization_alias="replyTo")
+    poll: Optional[Dict[str, Any]] = Field(None, description="Poll data if message type is 'poll'")
 
     # Computed aggregated status field (Telegram/Messenger pattern)
     # This is computed by the service layer and represents the overall message status
@@ -215,6 +216,7 @@ class MessageResponse(BaseModel):
                 "deletedAt": None,
                 "reactions": [],
                 "statuses": [],
+                "poll": None,
                 "status": "sent"
             }
         }
