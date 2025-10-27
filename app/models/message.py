@@ -31,12 +31,12 @@ if TYPE_CHECKING:
 
 class MessageType(str, enum.Enum):
     """Enum for message types."""
-    TEXT = "text"
-    IMAGE = "image"
-    FILE = "file"
-    VOICE = "voice"
-    POLL = "poll"
-    CALL = "call"
+    TEXT = "TEXT"
+    IMAGE = "IMAGE"
+    FILE = "FILE"
+    VOICE = "VOICE"
+    POLL = "POLL"
+    CALL = "CALL"
 
 
 class MessageStatusType(str, enum.Enum):
