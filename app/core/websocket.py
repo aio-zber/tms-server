@@ -549,6 +549,60 @@ class ConnectionManager:
         event_type = data.get('type', 'conversation_update')
         await self.sio.emit(event_type, data, room=room)
 
+    async def broadcast_new_poll(
+        self,
+        conversation_id: UUID,
+        poll_data: Dict[str, Any]
+    ):
+        """
+        Broadcast a new poll creation to conversation members.
+
+        Args:
+            conversation_id: Conversation UUID
+            poll_data: Poll and message data to broadcast
+        """
+        room = f"conversation:{conversation_id}"
+        logger.info(f"[broadcast_new_poll] Broadcasting poll to room: {room}")
+
+        await self.sio.emit('new_poll', poll_data, room=room)
+        logger.info(f"[broadcast_new_poll] Poll broadcast completed")
+
+    async def broadcast_poll_vote(
+        self,
+        conversation_id: UUID,
+        vote_data: Dict[str, Any]
+    ):
+        """
+        Broadcast poll vote update to conversation members.
+
+        Args:
+            conversation_id: Conversation UUID
+            vote_data: Vote data including updated poll results
+        """
+        room = f"conversation:{conversation_id}"
+        logger.info(f"[broadcast_poll_vote] Broadcasting vote to room: {room}")
+
+        await self.sio.emit('poll_vote_added', vote_data, room=room)
+        logger.info(f"[broadcast_poll_vote] Vote broadcast completed")
+
+    async def broadcast_poll_closed(
+        self,
+        conversation_id: UUID,
+        poll_data: Dict[str, Any]
+    ):
+        """
+        Broadcast poll closed event to conversation members.
+
+        Args:
+            conversation_id: Conversation UUID
+            poll_data: Closed poll data
+        """
+        room = f"conversation:{conversation_id}"
+        logger.info(f"[broadcast_poll_closed] Broadcasting poll closed to room: {room}")
+
+        await self.sio.emit('poll_closed', poll_data, room=room)
+        logger.info(f"[broadcast_poll_closed] Poll closed broadcast completed")
+
     def get_asgi_app(self, fastapi_app):
         """
         Get the ASGI app for Socket.IO wrapping FastAPI.

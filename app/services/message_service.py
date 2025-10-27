@@ -228,7 +228,9 @@ class MessageService:
                 for s in message.statuses
             ],
             # Add computed status field (Telegram/Messenger pattern)
-            "status": self._compute_message_status(message, current_user_id)
+            "status": self._compute_message_status(message, current_user_id),
+            # Initialize poll field as None (will be populated below if message is poll type)
+            "poll": None
         }
 
         # Fetch sender data from TMS
@@ -329,6 +331,35 @@ class MessageService:
         else:
             # Explicitly set to None if no reply_to_id
             message_dict["reply_to"] = None
+
+        # Enrich poll data if message type is POLL
+        if message.type == MessageType.POLL:
+            print(f"[ENRICH] Message {message.id} is a poll, loading poll data...")
+            try:
+                # Import poll service to build poll response
+                from app.services.poll_service import PollService
+                from app.models.poll import Poll
+
+                # Get poll for this message
+                result = await self.db.execute(
+                    select(Poll).where(Poll.message_id == message.id)
+                )
+                poll = result.scalar_one_or_none()
+
+                if poll:
+                    # Use PollService to build complete poll response with vote counts
+                    poll_service = PollService(self.db)
+                    poll_data = await poll_service._build_poll_response(poll, current_user_id)
+                    message_dict["poll"] = poll_data
+                    print(f"[ENRICH] ✅ Poll data loaded for message {message.id}")
+                else:
+                    print(f"[ENRICH] ⚠️ WARNING: Message {message.id} is type POLL but no poll found!")
+                    message_dict["poll"] = None
+            except Exception as e:
+                print(f"[MESSAGE_SERVICE] ❌ Failed to load poll data: {e}")
+                import traceback
+                print(traceback.format_exc())
+                message_dict["poll"] = None
 
         return message_dict
 
