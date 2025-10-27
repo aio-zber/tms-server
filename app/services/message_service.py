@@ -697,6 +697,34 @@ class MessageService:
                             "tms_user_id": sender_tms_id
                         }
 
+            # Enrich poll data if message type is POLL
+            if message.type == MessageType.POLL:
+                print(f"[MESSAGE_SERVICE] Message {message.id} is a poll, loading poll data...")
+                try:
+                    from app.services.poll_service import PollService
+                    from app.models.poll import Poll
+
+                    result = await self.db.execute(
+                        select(Poll).where(Poll.message_id == message.id)
+                    )
+                    poll = result.scalar_one_or_none()
+
+                    if poll:
+                        poll_service = PollService(self.db)
+                        poll_data = await poll_service._build_poll_response(poll, user_id)
+                        message_dict["poll"] = poll_data
+                        print(f"[MESSAGE_SERVICE] ✅ Poll data loaded for message {message.id}")
+                    else:
+                        print(f"[MESSAGE_SERVICE] ⚠️ WARNING: Message {message.id} is type POLL but no poll found!")
+                        message_dict["poll"] = None
+                except Exception as e:
+                    print(f"[MESSAGE_SERVICE] ❌ Failed to load poll data: {e}")
+                    import traceback
+                    print(traceback.format_exc())
+                    message_dict["poll"] = None
+            else:
+                message_dict["poll"] = None
+
             # Handle reply_to enrichment (recursive)
             if message.reply_to:
                 print(f"[MESSAGE_SERVICE] ✅ Message {message.id} has reply_to: {message.reply_to.id}")
