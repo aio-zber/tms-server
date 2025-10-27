@@ -249,26 +249,43 @@ class PollService:
                     detail="Single-choice poll allows only one option"
                 )
 
-            # Remove all existing votes for this user on this poll
+            # Check if user already voted for this exact option
             result = await self.db.execute(
                 select(PollVote).where(
                     and_(
                         PollVote.poll_id == poll_id,
-                        PollVote.user_id == user_id
+                        PollVote.user_id == user_id,
+                        PollVote.option_id == option_ids[0]
                     )
                 )
             )
-            existing_votes = result.scalars().all()
-            for vote in existing_votes:
-                await self.db.delete(vote)
+            existing_same_vote = result.scalar_one_or_none()
 
-            # Add new vote
-            vote = PollVote(
-                poll_id=poll_id,
-                option_id=option_ids[0],
-                user_id=user_id
-            )
-            self.db.add(vote)
+            if existing_same_vote:
+                # User clicked the same option they already voted for - no change needed
+                # (Viber/Telegram behavior: can't unvote in single-choice polls)
+                pass
+            else:
+                # Remove all existing votes for this user on this poll
+                result = await self.db.execute(
+                    select(PollVote).where(
+                        and_(
+                            PollVote.poll_id == poll_id,
+                            PollVote.user_id == user_id
+                        )
+                    )
+                )
+                existing_votes = result.scalars().all()
+                for vote in existing_votes:
+                    await self.db.delete(vote)
+
+                # Add new vote
+                vote = PollVote(
+                    poll_id=poll_id,
+                    option_id=option_ids[0],
+                    user_id=user_id
+                )
+                self.db.add(vote)
 
         await self.db.commit()
 
@@ -379,14 +396,17 @@ class PollService:
     ) -> Dict[str, Any]:
         """
         Build poll response dict with vote counts and user votes.
+        Uses Pydantic schema for proper camelCase serialization.
 
         Args:
             poll: Poll instance
             user_id: Current user UUID
 
         Returns:
-            Poll response dict
+            Poll response dict (with camelCase keys)
         """
+        from app.schemas.poll import PollResponse, PollOptionResponse
+
         # Get all options for this poll
         result = await self.db.execute(
             select(PollOption)
@@ -420,27 +440,33 @@ class PollService:
             # Get voter IDs (for anonymous=False polls, though we default to anonymous)
             voters = [v.user_id for v in option_votes]
 
-            option_responses.append({
-                "id": option.id,
-                "poll_id": option.poll_id,
-                "option_text": option.option_text,
-                "position": option.position,
-                "vote_count": vote_count,
-                "voters": voters  # Can be hidden on frontend if anonymous
-            })
+            # Use Pydantic schema for proper serialization
+            option_response = PollOptionResponse(
+                id=option.id,
+                poll_id=option.poll_id,
+                option_text=option.option_text,
+                position=option.position,
+                vote_count=vote_count,
+                voters=voters
+            )
+            option_responses.append(option_response)
 
         # Check if poll is closed
         is_closed = poll.expires_at is not None and poll.expires_at < datetime.utcnow()
 
-        return {
-            "id": poll.id,
-            "message_id": poll.message_id,
-            "question": poll.question,
-            "multiple_choice": poll.multiple_choice,
-            "is_closed": is_closed,
-            "expires_at": poll.expires_at,
-            "created_at": poll.created_at,
-            "options": option_responses,
-            "total_votes": total_votes,
-            "user_votes": user_votes
-        }
+        # Use Pydantic schema for proper camelCase serialization
+        poll_response = PollResponse(
+            id=poll.id,
+            message_id=poll.message_id,
+            question=poll.question,
+            multiple_choice=poll.multiple_choice,
+            is_closed=is_closed,
+            expires_at=poll.expires_at,
+            created_at=poll.created_at,
+            options=option_responses,
+            total_votes=total_votes,
+            user_votes=user_votes
+        )
+
+        # Convert to dict with camelCase keys (uses serialization_alias)
+        return poll_response.model_dump(by_alias=True, mode='json')
