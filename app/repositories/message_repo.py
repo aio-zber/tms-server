@@ -161,6 +161,7 @@ class MessageRepository(BaseRepository[Message]):
         - Trigram similarity for fuzzy matching
         - Results ranked by relevance
         - Supports partial word matching
+        - Automatic fallback to simple ILIKE search if advanced features fail
 
         Args:
             query: Search query string
@@ -172,6 +173,38 @@ class MessageRepository(BaseRepository[Message]):
 
         Returns:
             List of matching messages ordered by relevance
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        try:
+            # Try advanced full-text search first
+            return await self._search_messages_fulltext(
+                query, conversation_id, sender_id, start_date, end_date, limit
+            )
+        except Exception as e:
+            logger.warning(
+                f"[MESSAGE_REPO] ⚠️ Full-text search failed, using fallback: "
+                f"{type(e).__name__}: {str(e)}"
+            )
+            # Fallback to simple ILIKE search
+            return await self._search_messages_simple(
+                query, conversation_id, sender_id, start_date, end_date, limit
+            )
+
+    async def _search_messages_fulltext(
+        self,
+        query: str,
+        conversation_id: Optional[UUID] = None,
+        sender_id: Optional[UUID] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        limit: int = 50
+    ) -> List[Message]:
+        """
+        Advanced full-text search with PostgreSQL ts_query and trigrams.
+
+        Internal method - do not call directly. Use search_messages() instead.
         """
         from sqlalchemy import func, text, case
 
@@ -272,6 +305,80 @@ class MessageRepository(BaseRepository[Message]):
             print(f"[MESSAGE_REPO] ⚠️ No messages found for query: '{sanitized_query}'")
 
         return messages
+
+    async def _search_messages_simple(
+        self,
+        query: str,
+        conversation_id: Optional[UUID] = None,
+        sender_id: Optional[UUID] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        limit: int = 50
+    ) -> List[Message]:
+        """
+        Simple ILIKE-based fallback search when advanced features unavailable.
+
+        This method is used automatically when pg_trgm extension or full-text
+        search indexes are not available. It provides basic search functionality
+        without requiring PostgreSQL extensions.
+
+        Internal method - do not call directly. Use search_messages() instead.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        logger.info(
+            f"[MESSAGE_REPO] 🔍 Simple ILIKE search: query='{query}', "
+            f"conversation_id={conversation_id}"
+        )
+
+        # Sanitize query for ILIKE
+        sanitized_query = query.strip().replace("%", "\\%").replace("_", "\\_")
+
+        # Build query with eager loading
+        search_query = select(Message).options(
+            selectinload(Message.sender),
+            selectinload(Message.reactions),
+            selectinload(Message.statuses),
+            selectinload(Message.reply_to).selectinload(Message.sender),
+            selectinload(Message.reply_to).selectinload(Message.reactions),
+            selectinload(Message.reply_to).selectinload(Message.statuses),
+        )
+
+        # Apply filters
+        if conversation_id:
+            search_query = search_query.where(Message.conversation_id == conversation_id)
+
+        if sender_id:
+            search_query = search_query.where(Message.sender_id == sender_id)
+
+        if start_date:
+            search_query = search_query.where(Message.created_at >= start_date)
+
+        if end_date:
+            search_query = search_query.where(Message.created_at <= end_date)
+
+        # Exclude deleted messages
+        search_query = search_query.where(Message.deleted_at.is_(None))
+
+        # Simple ILIKE search on content
+        search_query = search_query.where(
+            Message.content.ilike(f"%{sanitized_query}%")
+        )
+
+        # Order by recency (no relevance ranking available)
+        search_query = search_query.order_by(
+            desc(Message.created_at)
+        ).limit(limit)
+
+        result = await self.db.execute(search_query)
+        messages = result.scalars().unique().all()
+
+        logger.info(
+            f"[MESSAGE_REPO] ✅ Simple search found {len(messages)} messages"
+        )
+
+        return list(messages)
 
     async def soft_delete(self, message_id: UUID) -> Optional[Message]:
         """

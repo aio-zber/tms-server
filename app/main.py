@@ -65,6 +65,47 @@ app.add_middleware(
 )
 
 
+# Global Exception Handler for CORS
+# Ensures CORS headers are present even when errors occur
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """
+    Global exception handler that ensures CORS headers are always present.
+
+    This is critical for message search and other features where database
+    errors might occur before CORS middleware can add headers.
+    """
+    import traceback
+    import logging
+
+    logger = logging.getLogger(__name__)
+    logger.error(f"🔴 Unhandled exception: {type(exc).__name__}: {str(exc)}")
+    logger.error(f"📍 Request: {request.method} {request.url}")
+    logger.error(f"📋 Traceback:\n{traceback.format_exc()}")
+
+    # Get origin from request headers (for proper CORS)
+    origin = request.headers.get("origin", "*")
+
+    # Return JSON error with CORS headers
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "error": {
+                "code": "INTERNAL_SERVER_ERROR",
+                "message": "An internal error occurred while processing your request",
+                "type": type(exc).__name__
+            }
+        },
+        headers={
+            "Access-Control-Allow-Origin": origin if origin in cors_origins else cors_origins[0] if cors_origins else "*",
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
+
+
 # Health Check Endpoints
 @app.get("/health", tags=["Health"])
 async def health_check():

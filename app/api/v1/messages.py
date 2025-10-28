@@ -692,41 +692,79 @@ async def search_messages(
     - **end_date**: Optional end date filter
     - **limit**: Number of results (max 100)
     """
-    service = MessageService(db)
+    import logging
+    import traceback
+    logger = logging.getLogger(__name__)
 
-    # Get user_id from local user record
-    from app.models.user import User
-    from sqlalchemy import select
-
-    result = await db.execute(
-        select(User).where(User.tms_user_id == current_user["tms_user_id"])
-    )
-    user = result.scalar_one_or_none()
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found in local database"
+    try:
+        logger.info(
+            f"[MESSAGE_SEARCH] 🔍 Search request: "
+            f"query='{search_data.query}', "
+            f"conversation_id={search_data.conversation_id}, "
+            f"user={current_user.get('tms_user_id', 'unknown')}"
         )
 
-    messages = await service.search_messages(
-        query=search_data.query,
-        user_id=user.id,
-        conversation_id=search_data.conversation_id,
-        sender_id=search_data.sender_id,
-        start_date=search_data.start_date,
-        end_date=search_data.end_date,
-        limit=search_data.limit
-    )
+        service = MessageService(db)
 
-    return {
-        "data": messages,
-        "pagination": {
-            "total": len(messages),
-            "limit": search_data.limit,
-            "has_more": len(messages) >= search_data.limit
+        # Get user_id from local user record
+        from app.models.user import User
+        from sqlalchemy import select
+
+        result = await db.execute(
+            select(User).where(User.tms_user_id == current_user["tms_user_id"])
+        )
+        user = result.scalar_one_or_none()
+
+        if not user:
+            logger.error(
+                f"[MESSAGE_SEARCH] ❌ User not found: tms_user_id={current_user['tms_user_id']}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found in local database"
+            )
+
+        logger.info(f"[MESSAGE_SEARCH] ✅ User found: local_id={user.id}")
+
+        messages = await service.search_messages(
+            query=search_data.query,
+            user_id=user.id,
+            conversation_id=search_data.conversation_id,
+            sender_id=search_data.sender_id,
+            start_date=search_data.start_date,
+            end_date=search_data.end_date,
+            limit=search_data.limit
+        )
+
+        logger.info(
+            f"[MESSAGE_SEARCH] ✅ Search complete: found {len(messages)} messages"
+        )
+
+        return {
+            "data": messages,
+            "pagination": {
+                "total": len(messages),
+                "limit": search_data.limit,
+                "has_more": len(messages) >= search_data.limit
+            }
         }
-    }
+    except HTTPException:
+        # Re-raise HTTP exceptions (already logged)
+        raise
+    except Exception as e:
+        # Log unexpected errors with full traceback
+        error_traceback = traceback.format_exc()
+        logger.error(
+            f"[MESSAGE_SEARCH] ❌ UNEXPECTED ERROR: {type(e).__name__}: {str(e)}\n"
+            f"Query: '{search_data.query}'\n"
+            f"Conversation: {search_data.conversation_id}\n"
+            f"User: {current_user.get('tms_user_id')}\n"
+            f"Traceback:\n{error_traceback}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Search failed: {type(e).__name__}: {str(e)}"
+        )
 
 
 @router.delete(
