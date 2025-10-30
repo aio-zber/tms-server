@@ -105,14 +105,29 @@ async def login(
         )
 
     except SecurityException as e:
+        # Enhanced error message for token validation failures
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(e)
+            detail={
+                "error": "authentication_failed",
+                "message": str(e),
+                "hint": "Please ensure you're using a valid JWT token from GCGC authentication"
+            }
         )
     except Exception as e:
+        # Enhanced error message for unexpected errors
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Login error: {type(e).__name__}: {str(e)}", exc_info=True)
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Internal server error: {str(e)}"
+            detail={
+                "error": "internal_server_error",
+                "message": "Failed to process login request",
+                "type": type(e).__name__,
+                "hint": "Please contact support if the issue persists"
+            }
         )
 
 
