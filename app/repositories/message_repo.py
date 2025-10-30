@@ -147,6 +147,7 @@ class MessageRepository(BaseRepository[Message]):
     async def search_messages(
         self,
         query: str,
+        user_id: UUID,
         conversation_id: Optional[UUID] = None,
         sender_id: Optional[UUID] = None,
         start_date: Optional[datetime] = None,
@@ -154,17 +155,22 @@ class MessageRepository(BaseRepository[Message]):
         limit: int = 50
     ) -> List[Message]:
         """
-        Search messages by text content with full-text search (Telegram/Messenger style).
+        Search messages by text content with simple case-insensitive matching (Telegram/Messenger style).
+
+        Uses ILIKE for reliable, fast, case-insensitive substring matching.
+        Searches ONLY in conversations the user is a member of (efficient filtering at database level).
 
         Features:
-        - Full-text search with ts_query and ts_rank
-        - Trigram similarity for fuzzy matching
-        - Results ranked by relevance
-        - Supports partial word matching
-        - Automatic fallback to simple ILIKE search if advanced features fail
+        - Case-insensitive search (e.g., "test" finds "Test", "TEST", "testing")
+        - Works for any query length (1+ characters)
+        - Substring matching (e.g., "hell" finds "hello", "shell")
+        - Filters by user's conversations (no post-filtering needed)
+        - Results ordered by recency
+        - Simple and reliable - no complex full-text search setup required
 
         Args:
             query: Search query string
+            user_id: User UUID (filters to only their conversations)
             conversation_id: Optional conversation filter
             sender_id: Optional sender filter
             start_date: Optional start date filter
@@ -172,25 +178,20 @@ class MessageRepository(BaseRepository[Message]):
             limit: Maximum results
 
         Returns:
-            List of matching messages ordered by relevance
+            List of matching messages ordered by recency
         """
         import logging
         logger = logging.getLogger(__name__)
 
-        try:
-            # Try advanced full-text search first
-            return await self._search_messages_fulltext(
-                query, conversation_id, sender_id, start_date, end_date, limit
-            )
-        except Exception as e:
-            logger.warning(
-                f"[MESSAGE_REPO] ⚠️ Full-text search failed, using fallback: "
-                f"{type(e).__name__}: {str(e)}"
-            )
-            # Fallback to simple ILIKE search
-            return await self._search_messages_simple(
-                query, conversation_id, sender_id, start_date, end_date, limit
-            )
+        logger.info(
+            f"[MESSAGE_REPO] 🔍 Searching messages: query='{query}', "
+            f"user_id={user_id}, conversation_id={conversation_id}, limit={limit}"
+        )
+
+        # Use simple ILIKE search for all queries (simple, reliable, fast)
+        return await self._search_messages_simple(
+            query, user_id, conversation_id, sender_id, start_date, end_date, limit
+        )
 
     async def _search_messages_fulltext(
         self,
@@ -309,6 +310,7 @@ class MessageRepository(BaseRepository[Message]):
     async def _search_messages_simple(
         self,
         query: str,
+        user_id: UUID,
         conversation_id: Optional[UUID] = None,
         sender_id: Optional[UUID] = None,
         start_date: Optional[datetime] = None,
@@ -316,27 +318,33 @@ class MessageRepository(BaseRepository[Message]):
         limit: int = 50
     ) -> List[Message]:
         """
-        Simple ILIKE-based fallback search when advanced features unavailable.
+        Simple ILIKE-based search in user's accessible conversations (Telegram/Messenger pattern).
 
-        This method is used automatically when pg_trgm extension or full-text
-        search indexes are not available. It provides basic search functionality
-        without requiring PostgreSQL extensions.
+        Filters messages to ONLY conversations the user is a member of (at database level).
+        This is more efficient than searching all messages and filtering afterward.
 
         Internal method - do not call directly. Use search_messages() instead.
         """
         import logging
+        from app.models.conversation import ConversationMember
         logger = logging.getLogger(__name__)
 
         logger.info(
             f"[MESSAGE_REPO] 🔍 Simple ILIKE search: query='{query}', "
-            f"conversation_id={conversation_id}"
+            f"user_id={user_id}, conversation_id={conversation_id}"
         )
 
         # Sanitize query for ILIKE
         sanitized_query = query.strip().replace("%", "\\%").replace("_", "\\_")
 
-        # Build query with eager loading
-        search_query = select(Message).options(
+        # Build query with JOIN to conversation_members to filter by user's conversations
+        search_query = select(Message).join(
+            ConversationMember,
+            and_(
+                ConversationMember.conversation_id == Message.conversation_id,
+                ConversationMember.user_id == user_id  # Only user's conversations
+            )
+        ).options(
             selectinload(Message.sender),
             selectinload(Message.reactions),
             selectinload(Message.statuses),

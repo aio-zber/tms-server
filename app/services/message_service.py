@@ -1262,9 +1262,10 @@ class MessageService:
                     detail="You don't have access to this conversation"
                 )
 
-        # Search messages
+        # Search messages (now filtered by user's conversations at database level)
         messages = await self.message_repo.search_messages(
             query,
+            user_id,  # Pass user_id to filter at database level
             conversation_id,
             sender_id,
             start_date,
@@ -1272,17 +1273,12 @@ class MessageService:
             limit
         )
 
-        # Enrich messages
+        # Enrich messages (no filtering needed - already filtered by database)
         enriched_messages = []
         for message in messages:
-            # Verify user has access to each message's conversation
-            if await self._verify_conversation_membership(
-                message.conversation_id,
-                user_id
-            ):
-                enriched_messages.append(
-                    await self._enrich_message_with_user_data(message, user_id)
-                )
+            enriched_messages.append(
+                await self._enrich_message_with_user_data(message, user_id)
+            )
 
         return enriched_messages
 
