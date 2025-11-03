@@ -68,37 +68,47 @@ class TMSClient:
         # Create client with cookie persistence (httpx automatically maintains cookies)
         async with httpx.AsyncClient(
             timeout=self.timeout,
-            follow_redirects=False  # Handle redirects manually to detect auth issues
+            follow_redirects=True,  # Follow redirects to complete auth flow
         ) as client:
             try:
-                # Step 1: Authenticate with GCGC signin endpoint
+                # Step 1: Authenticate with GCGC callback endpoint (not signin)
+                # NextAuth's callback endpoint is the one that actually creates sessions
                 signin_response = await client.post(
-                    f"{self.base_url}/api/auth/signin/credentials",
+                    f"{self.base_url}/api/auth/callback/credentials",
                     headers={"Content-Type": "application/x-www-form-urlencoded"},
                     data={
-                        "email": email,
+                        "username": email,  # CredentialsProvider expects 'username'
                         "password": password,
-                        "redirect": "false",
-                        "json": "true"
+                        "callbackUrl": f"{self.base_url}/",  # Same-domain callback URL
                     }
                 )
+
+                # Debug: Log cookies received
+                print(f"[AUTH DEBUG] Signin response status: {signin_response.status_code}")
+                print(f"[AUTH DEBUG] Cookies in jar: {list(client.cookies.jar)}")
+                for cookie in client.cookies.jar:
+                    print(f"  - {cookie.name}={cookie.value[:20]}... (domain={cookie.domain}, path={cookie.path})")
 
                 if not signin_response.is_success:
                     error_data = signin_response.text
                     raise TMSAPIException(f"Authentication failed: {error_data[:200]}")
 
                 # Step 2: Get JWT token using the session cookies
-                # The cookies from signin are automatically included by httpx's CookieJar
                 token_response = await client.get(
-                    f"{self.base_url}/api/v1/auth/token",
-                    follow_redirects=False  # Don't follow redirects if session is invalid
+                    f"{self.base_url}/api/v1/auth/token"
                 )
+
+                # Debug: Log request cookies
+                request_cookies = token_response.request.headers.get("cookie", "No cookies sent!")
+                print(f"[AUTH DEBUG] Token request cookies: {request_cookies}")
+                print(f"[AUTH DEBUG] Token response status: {token_response.status_code}")
 
                 # Check if we got redirected (session not established)
                 if token_response.status_code in [301, 302, 303, 307, 308]:
                     location = token_response.headers.get("location", "")
                     raise TMSAPIException(
-                        f"Session not established after signin. Redirected to: {location}"
+                        f"Session not established after signin. Redirected to: {location}. "
+                        f"Cookies in jar: {list(client.cookies.jar)}"
                     )
 
                 if not token_response.is_success:
