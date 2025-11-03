@@ -38,6 +38,79 @@ class TMSClient:
             "Content-Type": "application/json",
         }
 
+    async def authenticate_with_credentials(self, email: str, password: str) -> str:
+        """
+        Authenticate with GCGC using email and password, get JWT token.
+
+        This handles the complete server-to-server authentication flow:
+        1. POST credentials to GCGC signin endpoint
+        2. Retrieve session cookies
+        3. Use cookies to GET JWT token from /api/v1/auth/token
+
+        Args:
+            email: User email address
+            password: User password
+
+        Returns:
+            JWT token string
+
+        Raises:
+            TMSAPIException: If authentication fails
+
+        Example:
+            ```python
+            token = await tms_client.authenticate_with_credentials(
+                "user@example.com",
+                "password123"
+            )
+            ```
+        """
+        async with httpx.AsyncClient(
+            timeout=self.timeout,
+            follow_redirects=True
+        ) as client:
+            try:
+                # Step 1: Authenticate with GCGC signin endpoint
+                signin_response = await client.post(
+                    f"{self.base_url}/api/auth/signin/credentials",
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    data={
+                        "email": email,
+                        "password": password,
+                        "redirect": "false",
+                        "json": "true"
+                    }
+                )
+
+                if not signin_response.is_success:
+                    error_data = signin_response.text
+                    raise TMSAPIException(f"Authentication failed: {error_data[:200]}")
+
+                # Step 2: Get JWT token using the session cookies
+                token_response = await client.get(
+                    f"{self.base_url}/api/v1/auth/token"
+                )
+
+                if not token_response.is_success:
+                    raise TMSAPIException(
+                        f"Failed to get token from GCGC: {token_response.text[:200]}"
+                    )
+
+                token_data = token_response.json()
+                jwt_token = token_data.get("token")
+
+                if not jwt_token:
+                    raise TMSAPIException("No token in response from GCGC")
+
+                return jwt_token
+
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 401:
+                    raise TMSAPIException("Invalid email or password")
+                raise TMSAPIException(f"GCGC authentication failed: {e.response.text[:200]}")
+            except httpx.RequestError as e:
+                raise TMSAPIException(f"GCGC API unavailable: {str(e)}")
+
     async def validate_token(self, token: str) -> Dict[str, Any]:
         """
         Validate user token with GCGC Team Management System.
