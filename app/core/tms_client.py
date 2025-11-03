@@ -65,9 +65,10 @@ class TMSClient:
             )
             ```
         """
+        # Create client with cookie persistence (httpx automatically maintains cookies)
         async with httpx.AsyncClient(
             timeout=self.timeout,
-            follow_redirects=True
+            follow_redirects=False  # Handle redirects manually to detect auth issues
         ) as client:
             try:
                 # Step 1: Authenticate with GCGC signin endpoint
@@ -87,13 +88,23 @@ class TMSClient:
                     raise TMSAPIException(f"Authentication failed: {error_data[:200]}")
 
                 # Step 2: Get JWT token using the session cookies
+                # The cookies from signin are automatically included by httpx's CookieJar
                 token_response = await client.get(
-                    f"{self.base_url}/api/v1/auth/token"
+                    f"{self.base_url}/api/v1/auth/token",
+                    follow_redirects=False  # Don't follow redirects if session is invalid
                 )
+
+                # Check if we got redirected (session not established)
+                if token_response.status_code in [301, 302, 303, 307, 308]:
+                    location = token_response.headers.get("location", "")
+                    raise TMSAPIException(
+                        f"Session not established after signin. Redirected to: {location}"
+                    )
 
                 if not token_response.is_success:
                     raise TMSAPIException(
-                        f"Failed to get token from GCGC: {token_response.text[:200]}"
+                        f"Failed to get token from GCGC (status {token_response.status_code}): "
+                        f"{token_response.text[:200]}"
                     )
 
                 token_data = token_response.json()
