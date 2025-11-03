@@ -22,10 +22,17 @@ class LoginRequest(BaseModel):
     token: str = Field(..., description="TMS JWT token to validate")
 
 
+class CredentialsLoginRequest(BaseModel):
+    """Login request schema with email and password."""
+    email: str = Field(..., description="User email address")
+    password: str = Field(..., description="User password")
+
+
 class LoginResponse(BaseModel):
     """Login response schema."""
     success: bool
     user: UserResponse
+    token: str
     message: str = "Login successful"
 
 
@@ -34,6 +41,121 @@ class TokenValidationResponse(BaseModel):
     valid: bool
     user: Optional[UserResponse] = None
     message: str
+
+
+@router.post("/login/credentials", response_model=LoginResponse)
+async def login_with_credentials(
+    credentials: CredentialsLoginRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Authenticate with GCGC using email and password, return JWT token.
+
+    This endpoint handles the complete authentication flow:
+    1. Authenticate with GCGC using credentials
+    2. Get JWT token from GCGC
+    3. Sync user data to local database
+    4. Return JWT token and user profile
+
+    **Flow:**
+    1. Validate credentials with GCGC
+    2. Get JWT token from GCGC
+    3. Sync user to local database
+    4. Return token and user data to client
+
+    **Request Body:**
+    ```json
+    {
+        "email": "user@example.com",
+        "password": "password123"
+    }
+    ```
+
+    **Returns:** JWT token and user profile
+
+    **Errors:**
+    - 401: Invalid credentials
+    - 503: GCGC service unavailable
+    - 500: Internal server error
+    """
+    try:
+        # Authenticate with GCGC and get token server-to-server
+        token = await tms_client.authenticate_with_credentials(
+            credentials.email,
+            credentials.password
+        )
+
+        # Decode token to get user data
+        token_payload = decode_nextauth_token(token)
+
+        # Extract user data from token
+        tms_user_id = token_payload.get("id")
+        if not tms_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token does not contain user ID"
+            )
+
+        # Prepare user data from token for syncing
+        tms_user_data = {
+            "id": tms_user_id,
+            "email": token_payload.get("email"),
+            "name": token_payload.get("name"),
+            "role": token_payload.get("role"),
+            "hierarchyLevel": token_payload.get("hierarchyLevel"),
+            "image": token_payload.get("image"),
+        }
+
+        # Sync user to local database
+        user_repo = UserRepository(db)
+        user = await user_repo.upsert_from_tms(tms_user_id, tms_user_data)
+        await db.commit()
+
+        # Build user response
+        user_service = UserService(db)
+        user_response = user_service._map_user_to_response(user, tms_user_data)
+
+        return LoginResponse(
+            success=True,
+            user=user_response,
+            token=token,  # Return the JWT token to client
+            message="Login successful"
+        )
+
+    except TMSAPIException as e:
+        # GCGC authentication failed
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED if "401" in str(e) or "Unauthorized" in str(e) else status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "authentication_failed",
+                "message": str(e),
+                "hint": "Please check your email and password"
+            }
+        )
+    except SecurityException as e:
+        # Token validation failed
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "error": "authentication_failed",
+                "message": str(e),
+                "hint": "Authentication succeeded but token validation failed"
+            }
+        )
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Credentials login error: {type(e).__name__}: {str(e)}", exc_info=True)
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "internal_server_error",
+                "message": "Failed to process login request",
+                "type": type(e).__name__,
+                "hint": "Please contact support if the issue persists"
+            }
+        )
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -101,6 +223,7 @@ async def login(
         return LoginResponse(
             success=True,
             user=user_response,
+            token=login_request.token,  # Return the token back to client
             message="Login successful"
         )
 
