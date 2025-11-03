@@ -110,6 +110,7 @@ async def login_with_credentials(
         user_repo = UserRepository(db)
         user = await user_repo.upsert_from_tms(tms_user_id, tms_user_data)
         await db.commit()
+        await db.refresh(user)  # Refresh to ensure all attributes are loaded
 
         # Build user response
         user_service = UserService(db)
@@ -215,6 +216,7 @@ async def login(
         user_repo = UserRepository(db)
         user = await user_repo.upsert_from_tms(tms_user_id, tms_user_data)
         await db.commit()
+        await db.refresh(user)  # Refresh to ensure all attributes are loaded
 
         # Build user response
         user_service = UserService(db)
