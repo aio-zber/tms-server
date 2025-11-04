@@ -42,10 +42,8 @@ class TMSClient:
         """
         Authenticate with GCGC using email and password, get JWT token.
 
-        This handles the complete server-to-server authentication flow:
-        1. POST credentials to GCGC signin endpoint
-        2. Retrieve session cookies
-        3. Use cookies to GET JWT token from /api/v1/auth/token
+        This uses the direct server-to-server authentication endpoint:
+        POST /api/v1/auth/login with email and password.
 
         Args:
             email: User email address
@@ -65,69 +63,44 @@ class TMSClient:
             )
             ```
         """
-        # Create client with cookie persistence (httpx automatically maintains cookies)
-        async with httpx.AsyncClient(
-            timeout=self.timeout,
-            follow_redirects=True,  # Follow redirects to complete auth flow
-        ) as client:
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
-                # Step 1: Authenticate with GCGC callback endpoint (not signin)
-                # NextAuth's callback endpoint is the one that actually creates sessions
-                signin_response = await client.post(
-                    f"{self.base_url}/api/auth/callback/credentials",
-                    headers={"Content-Type": "application/x-www-form-urlencoded"},
-                    data={
-                        "email": email,  # CredentialsProvider expects 'email'
+                # Authenticate directly with GCGC's server-to-server login endpoint
+                response = await client.post(
+                    f"{self.base_url}/api/v1/auth/login",
+                    headers={"Content-Type": "application/json"},
+                    json={
+                        "email": email,
                         "password": password,
-                        "callbackUrl": f"{self.base_url}/",  # Same-domain callback URL
                     }
                 )
 
-                # Debug: Log cookies received
-                print(f"[AUTH DEBUG] Signin response status: {signin_response.status_code}")
-                print(f"[AUTH DEBUG] Cookies in jar: {list(client.cookies.jar)}")
-                for cookie in client.cookies.jar:
-                    print(f"  - {cookie.name}={cookie.value[:20]}... (domain={cookie.domain}, path={cookie.path})")
+                print(f"[AUTH DEBUG] Login response status: {response.status_code}")
+                print(f"[AUTH DEBUG] Login response body: {response.text[:500]}")
 
-                if not signin_response.is_success:
-                    error_data = signin_response.text
+                if response.status_code == 401:
+                    raise TMSAPIException("Invalid email or password")
+                elif response.status_code == 403:
+                    raise TMSAPIException("Account is deactivated")
+                elif not response.is_success:
+                    error_data = response.text
                     raise TMSAPIException(f"Authentication failed: {error_data[:200]}")
 
-                # Step 2: Get JWT token using the session cookies
-                token_response = await client.get(
-                    f"{self.base_url}/api/v1/auth/token"
-                )
-
-                # Debug: Log request cookies
-                request_cookies = token_response.request.headers.get("cookie", "No cookies sent!")
-                print(f"[AUTH DEBUG] Token request cookies: {request_cookies}")
-                print(f"[AUTH DEBUG] Token response status: {token_response.status_code}")
-
-                # Check if we got redirected (session not established)
-                if token_response.status_code in [301, 302, 303, 307, 308]:
-                    location = token_response.headers.get("location", "")
-                    raise TMSAPIException(
-                        f"Session not established after signin. Redirected to: {location}. "
-                        f"Cookies in jar: {list(client.cookies.jar)}"
-                    )
-
-                if not token_response.is_success:
-                    raise TMSAPIException(
-                        f"Failed to get token from GCGC (status {token_response.status_code}): "
-                        f"{token_response.text[:200]}"
-                    )
-
-                token_data = token_response.json()
+                # Parse response
+                token_data = response.json()
                 jwt_token = token_data.get("token")
 
                 if not jwt_token:
                     raise TMSAPIException("No token in response from GCGC")
 
+                print(f"[AUTH DEBUG] Successfully authenticated user: {token_data.get('user', {}).get('email')}")
                 return jwt_token
 
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 401:
                     raise TMSAPIException("Invalid email or password")
+                elif e.response.status_code == 403:
+                    raise TMSAPIException("Account is deactivated")
                 raise TMSAPIException(f"GCGC authentication failed: {e.response.text[:200]}")
             except httpx.RequestError as e:
                 raise TMSAPIException(f"GCGC API unavailable: {str(e)}")
