@@ -126,7 +126,7 @@ async def get_user_by_id(
 
 @router.get("/", response_model=list[UserResponse])
 async def search_users(
-    q: str = Query(..., min_length=1, max_length=100, description="Search query"),
+    q: str = Query("", min_length=0, max_length=100, description="Search query (empty returns all users)"),
     limit: int = Query(20, ge=1, le=100, description="Maximum results"),
     division: Optional[str] = Query(None, description="Filter by division"),
     department: Optional[str] = Query(None, description="Filter by department"),
@@ -143,11 +143,12 @@ async def search_users(
     2. Falls back to TMS API if insufficient results
     3. Syncs TMS results to local DB
     4. Returns combined results
+    5. If query is empty, returns all active users
 
     **Authentication**: Required
 
     **Query Parameters**:
-    - `q`: Search query (required, 1-100 characters)
+    - `q`: Search query (0-100 characters, empty returns all users)
     - `limit`: Maximum results (1-100, default: 20)
     - `division`: Filter by division
     - `department`: Filter by department
@@ -156,9 +157,10 @@ async def search_users(
 
     **Returns**: List of matching users
 
-    **Example**:
+    **Examples**:
     ```
     GET /api/v1/users?q=john&division=Engineering&limit=10
+    GET /api/v1/users?q=&limit=50  # Get all users
     ```
     """
     # Build filters
