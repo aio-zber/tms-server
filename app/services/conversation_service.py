@@ -185,9 +185,9 @@ class ConversationService:
         Create a new conversation.
 
         Args:
-            creator_id: Creator user UUID
+            creator_id: Creator user UUID (automatically added as admin)
             type: Conversation type (dm/group)
-            member_ids: List of member user IDs
+            member_ids: List of OTHER member user IDs (excludes creator - creator is added automatically)
             name: Optional conversation name (required for groups)
             avatar_url: Optional avatar URL
 
@@ -225,13 +225,28 @@ class ConversationService:
                     creator_id
                 )
 
+        # Validate creator is NOT in member_ids (they'll be added automatically as admin)
+        if creator_id in member_ids:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Creator is automatically added as admin. Do not include yourself in member_ids."
+            )
+
         # Validate all member IDs exist in local database
         from app.models.user import User
         from sqlalchemy import select
 
-        all_member_ids = [creator_id] + [uid for uid in member_ids if uid != creator_id]
+        # Check creator exists
+        result = await self.db.execute(select(User).where(User.id == creator_id))
+        creator = result.scalar_one_or_none()
+        if not creator:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Creator user {creator_id} not found"
+            )
 
-        for uid in all_member_ids:
+        # Check all members exist
+        for uid in member_ids:
             result = await self.db.execute(select(User).where(User.id == uid))
             user = result.scalar_one_or_none()
             if not user:

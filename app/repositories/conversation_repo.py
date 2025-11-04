@@ -111,12 +111,15 @@ class ConversationRepository(BaseRepository[Conversation]):
         Args:
             type: Conversation type (dm/group)
             creator_id: Creator user ID
-            member_ids: List of member user IDs (excluding creator)
+            member_ids: List of OTHER member user IDs (should NOT include creator)
             name: Optional conversation name
             avatar_url: Optional avatar URL
 
         Returns:
             Created conversation with members
+
+        Raises:
+            ValueError: If creator is in member_ids (safety check)
         """
         # Create conversation
         conversation = Conversation(
@@ -137,15 +140,18 @@ class ConversationRepository(BaseRepository[Conversation]):
         )
         self.db.add(creator_member)
 
-        # Add other members
+        # Add other members (member_ids should already exclude creator)
         for member_id in member_ids:
-            if member_id != creator_id:  # Avoid duplicate
-                member = ConversationMember(
-                    conversation_id=conversation.id,
-                    user_id=member_id,
-                    role=ConversationRole.MEMBER
-                )
-                self.db.add(member)
+            # Safety check: ensure not adding creator twice
+            if member_id == creator_id:
+                raise ValueError(f"Creator {creator_id} should not be in member_ids - they are added automatically as admin")
+
+            member = ConversationMember(
+                conversation_id=conversation.id,
+                user_id=member_id,
+                role=ConversationRole.MEMBER
+            )
+            self.db.add(member)
 
         await self.db.flush()
         await self.db.refresh(conversation)
