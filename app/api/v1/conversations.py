@@ -74,10 +74,32 @@ async def create_conversation(
     user = await get_current_user_from_db(current_user, db)
     user_repo = UserRepository(db)
 
+    # Validate: current user should NOT be in member_ids (they're added automatically as creator/admin)
+    current_user_tms_id = current_user.get("tms_user_id")
+    if current_user_tms_id in conversation_data.member_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You are automatically added as the conversation creator/admin. Do not include yourself in member_ids."
+        )
+
     # Convert TMS user IDs to local database UUIDs
     local_member_ids: list[UUID] = []
 
     for tms_user_id in conversation_data.member_ids:
+        # Validate: Detect if this looks like a local UUID instead of TMS ID
+        # TMS IDs are like "cmgu6bzp70003qy10qnp5xksi" (not UUID format)
+        # Local UUIDs are like "16b1858d-5eca-4eab-8dfa-227d3e65a332"
+        try:
+            UUID(tms_user_id)
+            # If we get here, it's a valid UUID format - likely wrong!
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid member ID format. Expected TMS user ID (e.g., 'cmgu6bzp...'), but received what appears to be a local UUID '{tms_user_id}'. Please ensure you're sending TMS user IDs from the user search API, not local database UUIDs."
+            )
+        except ValueError:
+            # Not a UUID format, good - likely a TMS user ID
+            pass
+
         # Check if user exists locally
         result = await db.execute(
             select(User).where(User.tms_user_id == tms_user_id)
@@ -103,13 +125,6 @@ async def create_conversation(
                 )
 
         local_member_ids.append(local_user.id)
-
-    # Validate: current user should NOT be in member_ids (they're added automatically as creator/admin)
-    if user.id in local_member_ids:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="You are automatically added as the conversation creator/admin. Do not include yourself in member_ids."
-        )
 
     # Create conversation with local UUIDs
     conversation = await service.create_conversation(
