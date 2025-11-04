@@ -4,7 +4,7 @@ Maps TMS user data to internal application structures.
 """
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, ConfigDict
 
 
 class TMSReportsToSchema(BaseModel):
@@ -143,8 +143,11 @@ class UserResponse(BaseModel):
     # Local settings (from messaging system)
     settings: Optional[dict] = None
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(
+        from_attributes=True,
+        populate_by_name=True,
+        ser_json_by_alias=True,  # Critical: enables serialization_alias for JSON output
+    )
 
 
 class UserSearchRequest(BaseModel):
