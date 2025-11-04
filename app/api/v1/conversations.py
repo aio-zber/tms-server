@@ -104,6 +104,13 @@ async def create_conversation(
 
         local_member_ids.append(local_user.id)
 
+    # Validate: current user should NOT be in member_ids (they're added automatically as creator/admin)
+    if user.id in local_member_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You are automatically added as the conversation creator/admin. Do not include yourself in member_ids."
+        )
+
     # Create conversation with local UUIDs
     conversation = await service.create_conversation(
         creator_id=user.id,
