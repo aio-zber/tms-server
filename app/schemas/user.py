@@ -115,30 +115,36 @@ class UserResponse(BaseModel):
     """
     Response schema for user data in Team Messaging System.
     Combines TMS data with local settings.
+
+    Note: Uses serialization_alias to output camelCase for frontend compatibility
+    while keeping internal snake_case for Python conventions.
     """
     id: str  # Local user ID
-    tms_user_id: str
+    tms_user_id: str = Field(serialization_alias="tmsUserId")
     email: EmailStr
     username: Optional[str] = None
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    middle_name: Optional[str] = None
+    first_name: Optional[str] = Field(None, serialization_alias="firstName")
+    last_name: Optional[str] = Field(None, serialization_alias="lastName")
+    middle_name: Optional[str] = Field(None, serialization_alias="middleName")
     name: Optional[str] = None
-    display_name: str  # Computed from name/first_name+last_name
+    display_name: str = Field(serialization_alias="displayName")  # Computed from name/first_name+last_name
     image: Optional[str] = None
     role: str  # Mapped from TMS role
-    position_title: Optional[str] = None
+    position_title: Optional[str] = Field(None, serialization_alias="positionTitle")
     division: Optional[str] = None
     department: Optional[str] = None
     section: Optional[str] = None
-    custom_team: Optional[str] = None
-    is_active: bool
-    is_leader: bool
-    last_synced_at: Optional[datetime] = None
-    created_at: datetime
+    custom_team: Optional[str] = Field(None, serialization_alias="customTeam")
+    is_active: bool = Field(serialization_alias="isActive")
+    is_leader: bool = Field(serialization_alias="isLeader")
+    last_synced_at: Optional[datetime] = Field(None, serialization_alias="lastSyncedAt")
+    created_at: datetime = Field(serialization_alias="createdAt")
 
     # Local settings (from messaging system)
     settings: Optional[dict] = None
+
+    class Config:
+        populate_by_name = True
 
 
 class UserSearchRequest(BaseModel):
