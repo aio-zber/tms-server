@@ -77,7 +77,7 @@ class TMSClient:
                     f"{self.base_url}/api/auth/callback/credentials",
                     headers={"Content-Type": "application/x-www-form-urlencoded"},
                     data={
-                        "username": email,  # CredentialsProvider expects 'username'
+                        "email": email,  # CredentialsProvider expects 'email'
                         "password": password,
                         "callbackUrl": f"{self.base_url}/",  # Same-domain callback URL
                     }
