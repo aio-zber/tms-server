@@ -390,6 +390,22 @@ class ConversationService:
 
         await self.db.commit()
 
+        # Broadcast conversation update to all members
+        try:
+            from app.core.websocket import connection_manager
+
+            await connection_manager.broadcast_conversation_updated(
+                conversation_id=conversation_id,
+                updated_by=user_id,
+                name=name,
+                avatar_url=avatar_url
+            )
+        except Exception as ws_error:
+            # Log error but don't fail the operation
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to broadcast conversation_updated event: {ws_error}")
+
         # Reload and enrich
         updated_conversation = await self.conversation_repo.get_with_relations(conversation_id)
         return await self._enrich_conversation_with_user_data(updated_conversation, user_id)
@@ -453,6 +469,35 @@ class ConversationService:
         added_count = await self.member_repo.add_members(conversation_id, member_ids)
         await self.db.commit()
 
+        # Broadcast member addition to all conversation members
+        try:
+            from app.core.websocket import connection_manager
+            from app.models.user import User
+            from sqlalchemy import select
+
+            # Get added members' details for broadcast
+            added_members_data = []
+            for uid in member_ids:
+                result = await self.db.execute(select(User).where(User.id == uid))
+                added_user = result.scalar_one_or_none()
+                if added_user:
+                    added_members_data.append({
+                        'user_id': added_user.id,
+                        'full_name': f"{added_user.first_name} {added_user.last_name}".strip() or added_user.email,
+                        'role': 'MEMBER'
+                    })
+
+            await connection_manager.broadcast_member_added(
+                conversation_id=conversation_id,
+                added_members=added_members_data,
+                added_by=user_id
+            )
+        except Exception as ws_error:
+            # Log error but don't fail the operation
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to broadcast member_added event: {ws_error}")
+
         return {
             "success": True,
             "message": f"Added {added_count} members to conversation",
@@ -513,6 +558,21 @@ class ConversationService:
 
         await self.db.commit()
 
+        # Broadcast member removal to all conversation members
+        try:
+            from app.core.websocket import connection_manager
+
+            await connection_manager.broadcast_member_removed(
+                conversation_id=conversation_id,
+                removed_user_id=member_id,
+                removed_by=user_id
+            )
+        except Exception as ws_error:
+            # Log error but don't fail the operation
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to broadcast member_removed event: {ws_error}")
+
         return {
             "success": True,
             "message": "Member removed successfully",
@@ -544,7 +604,32 @@ class ConversationService:
                 detail="You are not a member of this conversation"
             )
 
-        # Remove member
+        # Get user details before leaving (for broadcast)
+        from app.models.user import User
+        from sqlalchemy import select
+
+        result = await self.db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        user_name = f"{user.first_name} {user.last_name}".strip() if user else "Unknown User"
+        if not user_name:
+            user_name = user.email if user else "Unknown User"
+
+        # Broadcast BEFORE removing (so user still in room to receive)
+        try:
+            from app.core.websocket import connection_manager
+
+            await connection_manager.broadcast_member_left(
+                conversation_id=conversation_id,
+                user_id=user_id,
+                user_name=user_name
+            )
+        except Exception as ws_error:
+            # Log error but don't fail the operation
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to broadcast member_left event: {ws_error}")
+
+        # Remove member (after broadcast)
         await self.member_repo.remove_member(conversation_id, user_id)
         await self.db.commit()
 

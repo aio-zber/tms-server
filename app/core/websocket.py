@@ -603,6 +603,140 @@ class ConnectionManager:
         await self.sio.emit('poll_closed', poll_data, room=room)
         logger.info(f"[broadcast_poll_closed] Poll closed broadcast completed")
 
+    async def broadcast_member_added(
+        self,
+        conversation_id: UUID,
+        added_members: list[Dict[str, Any]],
+        added_by: UUID
+    ):
+        """
+        Broadcast member addition to conversation members.
+
+        Follows Telegram/Messenger pattern for group member notifications.
+
+        Args:
+            conversation_id: Conversation UUID
+            added_members: List of added member data [{'user_id': UUID, 'full_name': str, 'role': str}]
+            added_by: User ID who added the members
+        """
+        room = f"conversation:{conversation_id}"
+        logger.info(f"[broadcast_member_added] Broadcasting to room: {room}")
+        logger.info(f"[broadcast_member_added] Added {len(added_members)} member(s)")
+
+        await self.sio.emit('member_added', {
+            'conversation_id': str(conversation_id),
+            'added_members': [
+                {
+                    'user_id': str(member['user_id']),
+                    'full_name': member.get('full_name', ''),
+                    'role': member.get('role', 'MEMBER')
+                }
+                for member in added_members
+            ],
+            'added_by': str(added_by),
+            'timestamp': str(asyncio.get_event_loop().time())
+        }, room=room)
+
+        logger.info(f"[broadcast_member_added] Member addition broadcast completed")
+
+    async def broadcast_member_removed(
+        self,
+        conversation_id: UUID,
+        removed_user_id: UUID,
+        removed_by: UUID
+    ):
+        """
+        Broadcast member removal to conversation members.
+
+        Notifies when an admin removes a member from the group.
+
+        Args:
+            conversation_id: Conversation UUID
+            removed_user_id: User ID who was removed
+            removed_by: User ID who removed the member
+        """
+        room = f"conversation:{conversation_id}"
+        logger.info(f"[broadcast_member_removed] Broadcasting to room: {room}")
+        logger.info(f"[broadcast_member_removed] User {removed_user_id} removed by {removed_by}")
+
+        await self.sio.emit('member_removed', {
+            'conversation_id': str(conversation_id),
+            'removed_user_id': str(removed_user_id),
+            'removed_by': str(removed_by),
+            'timestamp': str(asyncio.get_event_loop().time())
+        }, room=room)
+
+        logger.info(f"[broadcast_member_removed] Member removal broadcast completed")
+
+    async def broadcast_member_left(
+        self,
+        conversation_id: UUID,
+        user_id: UUID,
+        user_name: str
+    ):
+        """
+        Broadcast member leave event to conversation members.
+
+        Notifies when a member voluntarily leaves the conversation.
+
+        Args:
+            conversation_id: Conversation UUID
+            user_id: User ID who left
+            user_name: Full name of the user who left
+        """
+        room = f"conversation:{conversation_id}"
+        logger.info(f"[broadcast_member_left] Broadcasting to room: {room}")
+        logger.info(f"[broadcast_member_left] User {user_id} ({user_name}) left")
+
+        await self.sio.emit('member_left', {
+            'conversation_id': str(conversation_id),
+            'user_id': str(user_id),
+            'user_name': user_name,
+            'timestamp': str(asyncio.get_event_loop().time())
+        }, room=room)
+
+        logger.info(f"[broadcast_member_left] Member left broadcast completed")
+
+    async def broadcast_conversation_updated(
+        self,
+        conversation_id: UUID,
+        updated_by: UUID,
+        name: Optional[str] = None,
+        avatar_url: Optional[str] = None
+    ):
+        """
+        Broadcast conversation details update to members.
+
+        Notifies when conversation name or avatar changes.
+
+        Args:
+            conversation_id: Conversation UUID
+            updated_by: User ID who updated the conversation
+            name: New conversation name (if changed)
+            avatar_url: New avatar URL (if changed)
+        """
+        room = f"conversation:{conversation_id}"
+        logger.info(f"[broadcast_conversation_updated] Broadcasting to room: {room}")
+
+        # Build update payload with only changed fields
+        update_data = {
+            'conversation_id': str(conversation_id),
+            'updated_by': str(updated_by),
+            'timestamp': str(asyncio.get_event_loop().time())
+        }
+
+        if name is not None:
+            update_data['name'] = name
+            logger.info(f"[broadcast_conversation_updated] Name changed to: {name}")
+
+        if avatar_url is not None:
+            update_data['avatar_url'] = avatar_url
+            logger.info(f"[broadcast_conversation_updated] Avatar changed")
+
+        await self.sio.emit('conversation_updated', update_data, room=room)
+
+        logger.info(f"[broadcast_conversation_updated] Conversation update broadcast completed")
+
     def get_asgi_app(self, fastapi_app):
         """
         Get the ASGI app for Socket.IO wrapping FastAPI.
