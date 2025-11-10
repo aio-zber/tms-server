@@ -97,11 +97,11 @@ class ConversationUpdate(BaseModel):
 class ConversationMemberAdd(BaseModel):
     """Schema for adding members to a conversation."""
 
-    user_ids: List[UUID] = Field(..., min_items=1, max_items=50, description="List of user IDs to add")
+    user_ids: List[str] = Field(..., min_items=1, max_items=50, description="List of TMS user IDs to add as members")
 
     @field_validator("user_ids")
     @classmethod
-    def validate_user_ids(cls, v: List[UUID]) -> List[UUID]:
+    def validate_user_ids(cls, v: List[str]) -> List[str]:
         """Check for duplicate IDs."""
         if len(v) != len(set(v)):
             raise ValueError("Duplicate user IDs are not allowed")
@@ -110,7 +110,7 @@ class ConversationMemberAdd(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "user_ids": ["123e4567-e89b-12d3-a456-426614174000"]
+                "user_ids": ["cmgu6bzp70003qy10qnp5xksi"]
             }
         }
 
