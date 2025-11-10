@@ -291,15 +291,66 @@ async def add_members(
     Add members to a conversation.
 
     - **conversation_id**: UUID of the conversation
-    - **user_ids**: List of user IDs to add
+    - **user_ids**: List of TMS user IDs to add
     """
+    from app.models.user import User
+    from app.repositories.user_repo import UserRepository
+    from app.core.tms_client import tms_client
+    from sqlalchemy import select
+
     service = ConversationService(db)
     user = await get_current_user_from_db(current_user, db)
+    user_repo = UserRepository(db)
 
+    # Convert TMS user IDs to local database UUIDs
+    local_member_ids: list[UUID] = []
+
+    for tms_user_id in member_data.user_ids:
+        # Validate: Detect if this looks like a local UUID instead of TMS ID
+        # TMS IDs are like "cmgu6bzp70003qy10qnp5xksi" (not UUID format)
+        # Local UUIDs are like "16b1858d-5eca-4eab-8dfa-227d3e65a332"
+        try:
+            UUID(tms_user_id)
+            # If we get here, it's a valid UUID format - likely wrong!
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid member ID format. Expected TMS user ID (e.g., 'cmgu6bzp...'), but received what appears to be a local UUID '{tms_user_id}'. Please ensure you're sending TMS user IDs from the user search API, not local database UUIDs."
+            )
+        except ValueError:
+            # Not a UUID format, good - likely a TMS user ID
+            pass
+
+        # Check if user exists locally
+        result = await db.execute(
+            select(User).where(User.tms_user_id == tms_user_id)
+        )
+        local_user = result.scalar_one_or_none()
+
+        if not local_user:
+            # Fetch user from TMS and sync to local database
+            try:
+                tms_user_data = await tms_client.get_user_by_id_with_api_key(
+                    user_id=tms_user_id,
+                    use_cache=True
+                )
+
+                # Sync user to local database
+                local_user = await user_repo.upsert_from_tms(tms_user_id, tms_user_data)
+                await db.commit()
+
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Failed to fetch user {tms_user_id} from Team Management System: {str(e)}"
+                )
+
+        local_member_ids.append(local_user.id)
+
+    # Add members using local UUIDs
     result = await service.add_members(
         conversation_id=conversation_id,
         user_id=user.id,
-        member_ids=member_data.user_ids
+        member_ids=local_member_ids
     )
 
     return result
