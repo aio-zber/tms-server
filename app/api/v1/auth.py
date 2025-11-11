@@ -3,9 +3,11 @@ Authentication API endpoints.
 Provides login functionality and token validation using TMS integration.
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Header, Request
+from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
 from typing import Optional
+import os
 
 from app.core.database import get_db
 from app.services.user_service import UserService
@@ -13,6 +15,7 @@ from app.core.tms_client import tms_client, TMSAPIException
 from app.core.security import decode_nextauth_token, SecurityException
 from app.schemas.user import UserResponse
 from app.repositories.user_repo import UserRepository
+from app.core.sso_codes import generate_sso_code, validate_sso_code
 
 router = APIRouter()
 
@@ -536,3 +539,335 @@ async def auth_health_check():
             "tms_connected": False,
             "message": f"Authentication service error: {str(e)}"
         }
+
+
+class SSOCodeExchangeRequest(BaseModel):
+    """SSO code exchange request schema."""
+    code: str = Field(..., description="One-time SSO code")
+
+
+@router.get("/sso/check")
+async def sso_check(
+    request: Request,
+    redirect_uri: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    SSO Check Endpoint - Server-to-Server SSO Flow Initiator.
+
+    This endpoint initiates the SSO flow by checking if the user has a valid
+    GCGC session. It acts as a proxy between TMS-Client and GCGC, enabling
+    server-to-server authentication without cross-domain cookie issues.
+
+    **Flow:**
+    1. TMS-Client redirects browser to this endpoint
+    2. TMS-Server receives request WITH all browser cookies (including GCGC cookies)
+    3. If GCGC cookie found → Validate with GCGC → Generate SSO code → Redirect back
+    4. If no GCGC cookie → Redirect to GCGC login → GCGC redirects to /sso/callback
+
+    **Query Parameters:**
+    - `redirect_uri`: TMS-Client URL to redirect back to after SSO check
+
+    **Returns:**
+    - Redirect to TMS-Client with `sso_code` parameter if authenticated
+    - Redirect to GCGC login if not authenticated
+
+    **Usage:**
+    ```
+    GET /api/v1/auth/sso/check?redirect_uri=https://tms-client.example.com
+    ```
+
+    **Why This Works:**
+    When browser redirects to TMS-Server, it sends ALL cookies including GCGC cookies
+    (if GCGC sets cookies with proper attributes like SameSite=None or same parent domain).
+    TMS-Server can read these cookies server-side, avoiding cross-domain JavaScript restrictions.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # Cookie names to check (NextAuth default names)
+    cookie_names = [
+        "next-auth.session-token",
+        "__Secure-next-auth.session-token",
+        "__Host-next-auth.session-token",
+        "authjs.session-token",
+        "__Secure-authjs.session-token",
+    ]
+
+    # Check for GCGC session cookie
+    gcgc_session_token = None
+    for cookie_name in cookie_names:
+        gcgc_session_token = request.cookies.get(cookie_name)
+        if gcgc_session_token:
+            logger.info(f"🔐 SSO Check: Found GCGC cookie: {cookie_name}")
+            break
+
+    if gcgc_session_token:
+        # User has GCGC session - validate and generate code
+        try:
+            logger.info("🔐 SSO Check: Validating GCGC session with GCGC API...")
+
+            # Validate GCGC session token (server-to-server)
+            tms_user_data = await tms_client.get_current_user_from_session(gcgc_session_token)
+            tms_user_id = tms_user_data.get("id")
+
+            if not tms_user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="GCGC user data does not contain user ID"
+                )
+
+            logger.info(f"✅ SSO Check: GCGC session valid for user {tms_user_id}")
+
+            # Sync user to local database
+            user_repo = UserRepository(db)
+            user = await user_repo.upsert_from_tms(tms_user_id, tms_user_data)
+            await db.commit()
+
+            # Generate one-time SSO code
+            sso_code = generate_sso_code(tms_user_id, tms_user_data)
+
+            logger.info(f"✅ SSO Check: Generated SSO code, redirecting to {redirect_uri}")
+
+            # Redirect back to TMS-Client with code
+            return RedirectResponse(
+                url=f"{redirect_uri}?sso_code={sso_code}",
+                status_code=status.HTTP_302_FOUND
+            )
+
+        except TMSAPIException as e:
+            logger.warning(f"❌ SSO Check: GCGC validation failed: {str(e)}")
+            # GCGC session invalid - redirect to GCGC login
+            pass  # Fall through to GCGC login redirect
+        except Exception as e:
+            logger.error(f"❌ SSO Check: Unexpected error: {type(e).__name__}: {str(e)}", exc_info=True)
+            # Fall through to GCGC login redirect
+
+    # No valid GCGC session - redirect to GCGC login
+    logger.info("🔐 SSO Check: No valid GCGC session, redirecting to GCGC login")
+
+    gcgc_login_url = os.getenv(
+        "GCGC_LOGIN_URL",
+        "https://gcgc-team-management-system-staging.up.railway.app/auth/signin"
+    )
+
+    # Build callback URL for GCGC to redirect back to
+    callback_url = f"{request.url.scheme}://{request.url.netloc}/api/v1/auth/sso/callback"
+
+    # Redirect to GCGC login with callback
+    return RedirectResponse(
+        url=f"{gcgc_login_url}?callbackUrl={callback_url}?redirect_uri={redirect_uri}",
+        status_code=status.HTTP_302_FOUND
+    )
+
+
+@router.get("/sso/callback")
+async def sso_callback(
+    request: Request,
+    redirect_uri: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    SSO Callback Handler - Receives redirect from GCGC after login.
+
+    This endpoint is called by GCGC after the user logs in. At this point,
+    the browser has a GCGC session cookie. We validate it and generate an
+    SSO code to pass back to TMS-Client.
+
+    **Flow:**
+    1. User logs into GCGC
+    2. GCGC redirects to this endpoint
+    3. TMS-Server reads GCGC cookie from browser
+    4. TMS-Server validates with GCGC (server-to-server)
+    5. TMS-Server generates SSO code
+    6. TMS-Server redirects to TMS-Client with code
+
+    **Query Parameters:**
+    - `redirect_uri`: TMS-Client URL to redirect back to
+
+    **Returns:**
+    - Redirect to TMS-Client with `sso_code` parameter
+
+    **Usage:**
+    ```
+    # This endpoint is called automatically by GCGC after login
+    GET /api/v1/auth/sso/callback?redirect_uri=https://tms-client.example.com
+    ```
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # Cookie names to check
+    cookie_names = [
+        "next-auth.session-token",
+        "__Secure-next-auth.session-token",
+        "__Host-next-auth.session-token",
+        "authjs.session-token",
+        "__Secure-authjs.session-token",
+    ]
+
+    # Check for GCGC session cookie
+    gcgc_session_token = None
+    for cookie_name in cookie_names:
+        gcgc_session_token = request.cookies.get(cookie_name)
+        if gcgc_session_token:
+            logger.info(f"🔐 SSO Callback: Found GCGC cookie: {cookie_name}")
+            break
+
+    if not gcgc_session_token:
+        logger.error("❌ SSO Callback: No GCGC session cookie found after login")
+        # Redirect to TMS-Client without code (will trigger manual login)
+        return RedirectResponse(
+            url=redirect_uri,
+            status_code=status.HTTP_302_FOUND
+        )
+
+    try:
+        logger.info("🔐 SSO Callback: Validating GCGC session...")
+
+        # Validate GCGC session token (server-to-server)
+        tms_user_data = await tms_client.get_current_user_from_session(gcgc_session_token)
+        tms_user_id = tms_user_data.get("id")
+
+        if not tms_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="GCGC user data does not contain user ID"
+            )
+
+        logger.info(f"✅ SSO Callback: GCGC session valid for user {tms_user_id}")
+
+        # Sync user to local database
+        user_repo = UserRepository(db)
+        user = await user_repo.upsert_from_tms(tms_user_id, tms_user_data)
+        await db.commit()
+
+        # Generate one-time SSO code
+        sso_code = generate_sso_code(tms_user_id, tms_user_data)
+
+        logger.info(f"✅ SSO Callback: Generated SSO code, redirecting to {redirect_uri}")
+
+        # Redirect back to TMS-Client with code
+        return RedirectResponse(
+            url=f"{redirect_uri}?sso_code={sso_code}",
+            status_code=status.HTTP_302_FOUND
+        )
+
+    except TMSAPIException as e:
+        logger.error(f"❌ SSO Callback: GCGC validation failed: {str(e)}")
+        # Redirect to TMS-Client without code
+        return RedirectResponse(
+            url=redirect_uri,
+            status_code=status.HTTP_302_FOUND
+        )
+    except Exception as e:
+        logger.error(f"❌ SSO Callback: Unexpected error: {type(e).__name__}: {str(e)}", exc_info=True)
+        # Redirect to TMS-Client without code
+        return RedirectResponse(
+            url=redirect_uri,
+            status_code=status.HTTP_302_FOUND
+        )
+
+
+@router.post("/sso/exchange", response_model=LoginResponse)
+async def sso_code_exchange(
+    exchange_request: SSOCodeExchangeRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    SSO Code Exchange - Exchange one-time code for JWT token.
+
+    This endpoint completes the SSO flow by exchanging the one-time SSO code
+    for a JWT token. The code is validated and consumed (can only be used once).
+
+    **Flow:**
+    1. TMS-Client receives SSO code from URL
+    2. TMS-Client POSTs code to this endpoint
+    3. TMS-Server validates code (checks expiration, usage)
+    4. TMS-Server returns JWT token and user data
+    5. TMS-Client stores JWT for API requests
+
+    **Request Body:**
+    ```json
+    {
+      "code": "abc123def456..."
+    }
+    ```
+
+    **Response:**
+    ```json
+    {
+      "success": true,
+      "user": {...},
+      "token": "jwt-token-here",
+      "message": "SSO login successful"
+    }
+    ```
+
+    **Errors:**
+    - 400: Invalid or expired SSO code
+    - 401: Code already used
+    - 500: Internal server error
+
+    **Security:**
+    - Codes expire after 5 minutes
+    - Codes can only be used once
+    - Codes are cryptographically random (32 characters)
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # Validate and consume SSO code
+    code_data = validate_sso_code(exchange_request.code)
+
+    if not code_data:
+        logger.warning(f"❌ SSO Exchange: Invalid or expired code")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "invalid_sso_code",
+                "message": "SSO code is invalid, expired, or already used",
+                "hint": "Please initiate SSO flow again"
+            }
+        )
+
+    try:
+        tms_user_id = code_data["user_id"]
+        tms_user_data = code_data["user_data"]
+
+        logger.info(f"✅ SSO Exchange: Valid code for user {tms_user_id}")
+
+        # Get or sync user from database
+        user_repo = UserRepository(db)
+        user = await user_repo.upsert_from_tms(tms_user_id, tms_user_data)
+        await db.commit()
+        await db.refresh(user)
+
+        # Build user response
+        user_service = UserService(db)
+        user_response = user_service._map_user_to_response(user, tms_user_data)
+
+        # Generate JWT token for TMS API access
+        # For now, we'll use the GCGC session token as the JWT
+        # In production, you might generate a separate TMS-specific JWT
+        token = f"sso-{tms_user_id}"  # Placeholder - use proper JWT generation
+
+        logger.info(f"✅ SSO Exchange: Login successful for user {tms_user_id}")
+
+        return LoginResponse(
+            success=True,
+            user=user_response,
+            token=token,
+            message="SSO login successful"
+        )
+
+    except Exception as e:
+        logger.error(f"❌ SSO Exchange: Error: {type(e).__name__}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "internal_server_error",
+                "message": "Failed to process SSO code exchange",
+                "type": type(e).__name__
+            }
+        )
