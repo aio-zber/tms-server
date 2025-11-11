@@ -159,6 +159,109 @@ async def login_with_credentials(
         )
 
 
+@router.post("/login/sso", response_model=LoginResponse)
+async def sso_login(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    gcgc_session_token: Optional[str] = Header(None, alias="X-GCGC-Session-Token")
+):
+    """
+    SSO login using GCGC NextAuth session token.
+
+    This endpoint enables seamless Single Sign-On (SSO) from GCGC to TMS.
+    It accepts a GCGC NextAuth session token, validates it with GCGC,
+    and returns a TMS JWT token for API access.
+
+    **Flow:**
+    1. Receive GCGC session token via header
+    2. Validate token with GCGC API (/api/v1/users/me)
+    3. Sync user data to local database
+    4. Return TMS JWT token
+
+    **Headers:**
+    ```
+    X-GCGC-Session-Token: <nextauth-session-token>
+    ```
+
+    **Returns:** TMS JWT token and user profile
+
+    **Errors:**
+    - 401: Invalid or missing GCGC session token
+    - 503: GCGC service unavailable
+    - 500: Internal server error
+
+    **Usage:**
+    This endpoint is called automatically by TMS-Client when it detects
+    a GCGC session cookie, enabling transparent authentication.
+    """
+    if not gcgc_session_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "error": "missing_session_token",
+                "message": "No GCGC session token provided",
+                "hint": "Ensure you're logged into GCGC and have a valid session"
+            }
+        )
+
+    try:
+        # Validate GCGC session token by calling GCGC API
+        # This uses the session token to authenticate and get user data
+        tms_user_data = await tms_client.get_current_user_from_session(gcgc_session_token)
+
+        # Extract user ID
+        tms_user_id = tms_user_data.get("id")
+        if not tms_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="GCGC user data does not contain user ID"
+            )
+
+        # Sync user to local database
+        user_repo = UserRepository(db)
+        user = await user_repo.upsert_from_tms(tms_user_id, tms_user_data)
+        await db.commit()
+        await db.refresh(user)
+
+        # Build user response
+        user_service = UserService(db)
+        user_response = user_service._map_user_to_response(user, tms_user_data)
+
+        # Return the GCGC session token as the JWT token
+        # TMS-Client will store this and use it for subsequent API calls
+        return LoginResponse(
+            success=True,
+            user=user_response,
+            token=gcgc_session_token,  # Use GCGC token directly
+            message="SSO login successful"
+        )
+
+    except TMSAPIException as e:
+        # GCGC session validation failed
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED if "401" in str(e) or "Unauthorized" in str(e) else status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "sso_authentication_failed",
+                "message": str(e),
+                "hint": "Your GCGC session may have expired. Please log in to GCGC again."
+            }
+        )
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"SSO login error: {type(e).__name__}: {str(e)}", exc_info=True)
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "internal_server_error",
+                "message": "Failed to process SSO login request",
+                "type": type(e).__name__,
+                "hint": "Please contact support if the issue persists"
+            }
+        )
+
+
 @router.post("/login", response_model=LoginResponse)
 async def login(
     login_request: LoginRequest,
