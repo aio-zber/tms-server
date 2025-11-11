@@ -138,6 +138,29 @@ class TMSClient:
             except httpx.RequestError as e:
                 raise TMSAPIException(f"TMS API request failed: {str(e)}")
 
+    async def get_current_user_from_session(self, session_token: str) -> Dict[str, Any]:
+        """
+        Get current user using GCGC NextAuth session token.
+        This is a convenience method for SSO authentication.
+
+        Args:
+            session_token: NextAuth session token from cookie
+
+        Returns:
+            Current user data dictionary from GCGC
+
+        Raises:
+            TMSAPIException: If session invalid or API error
+
+        Example:
+            ```python
+            user = await tms_client.get_current_user_from_session(session_token)
+            ```
+        """
+        # Use the session token as Bearer token
+        # GCGC's /api/v1/users/me endpoint accepts both JWT and session tokens
+        return await self.get_current_user_from_tms(token=session_token, use_cache=False)
+
     async def get_current_user_from_tms(
         self,
         token: Optional[str] = None,
