@@ -49,6 +49,37 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
+# Proxy Headers Middleware
+# Railway uses a reverse proxy that terminates TLS and forwards requests via HTTP.
+# This middleware reads X-Forwarded-Proto and X-Forwarded-Host headers to correctly
+# detect HTTPS and construct proper URLs.
+@app.middleware("http")
+async def proxy_headers_middleware(request: Request, call_next):
+    """
+    Handle Railway's reverse proxy headers for correct HTTPS detection.
+
+    Railway terminates TLS at the proxy and forwards requests via HTTP,
+    so request.url.scheme returns 'http' even though the client connection is HTTPS.
+    This middleware reads X-Forwarded-Proto and X-Forwarded-Host to fix this.
+    """
+    # Read forwarded headers from Railway's proxy
+    forwarded_proto = request.headers.get("X-Forwarded-Proto")
+    forwarded_host = request.headers.get("X-Forwarded-Host")
+
+    # Override scheme if forwarded proto exists (e.g., 'https')
+    if forwarded_proto:
+        request.scope["scheme"] = forwarded_proto
+
+    # Override host if forwarded host exists
+    if forwarded_host:
+        # Set server tuple (host, port)
+        port = 443 if forwarded_proto == "https" else 80
+        request.scope["server"] = (forwarded_host, port)
+
+    response = await call_next(request)
+    return response
+
+
 # CORS Middleware
 # Note: For WebSocket connections, CORS is handled by Socket.IO itself (via cors_allowed_origins)
 # Convert comma-separated string to list for CORS middleware
