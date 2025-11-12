@@ -624,8 +624,8 @@ async def sso_check(
             user = await user_repo.upsert_from_tms(tms_user_id, tms_user_data)
             await db.commit()
 
-            # Generate one-time SSO code
-            sso_code = generate_sso_code(tms_user_id, tms_user_data)
+            # Generate one-time SSO code (includes GCGC token for pass-through)
+            sso_code = generate_sso_code(tms_user_id, tms_user_data, gcgc_session_token)
 
             logger.info(f"✅ SSO Check: Generated SSO code, redirecting to {redirect_uri}")
 
@@ -742,8 +742,8 @@ async def sso_callback(
         user = await user_repo.upsert_from_tms(tms_user_id, tms_user_data)
         await db.commit()
 
-        # Generate one-time SSO code
-        sso_code = generate_sso_code(tms_user_id, tms_user_data)
+        # Generate one-time SSO code (includes GCGC token for pass-through)
+        sso_code = generate_sso_code(tms_user_id, tms_user_data, gcgc_session_token)
 
         logger.info(f"✅ SSO Callback: Generated SSO code, redirecting to {redirect_uri}")
 
@@ -834,6 +834,7 @@ async def sso_code_exchange(
     try:
         tms_user_id = code_data["user_id"]
         tms_user_data = code_data["user_data"]
+        gcgc_token = code_data["gcgc_token"]
 
         logger.info(f"✅ SSO Exchange: Valid code for user {tms_user_id}")
 
@@ -847,12 +848,12 @@ async def sso_code_exchange(
         user_service = UserService(db)
         user_response = user_service._map_user_to_response(user, tms_user_data)
 
-        # Generate JWT token for TMS API access
-        # For now, we'll use the GCGC session token as the JWT
-        # In production, you might generate a separate TMS-specific JWT
-        token = f"sso-{tms_user_id}"  # Placeholder - use proper JWT generation
+        # Use GCGC session token directly (Option A: Pass-through approach)
+        # This maintains tight coupling with GCGC - when user logs out of GCGC,
+        # they're automatically logged out of TMS (single source of truth)
+        token = gcgc_token
 
-        logger.info(f"✅ SSO Exchange: Login successful for user {tms_user_id}")
+        logger.info(f"✅ SSO Exchange: Login successful for user {tms_user_id}, returning GCGC token")
 
         return LoginResponse(
             success=True,
