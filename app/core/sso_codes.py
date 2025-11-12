@@ -18,13 +18,14 @@ _sso_codes: Dict[str, Dict[str, any]] = {}
 CODE_EXPIRATION_SECONDS = 300
 
 
-def generate_sso_code(user_id: str, user_data: Dict[str, any]) -> str:
+def generate_sso_code(user_id: str, user_data: Dict[str, any], gcgc_token: str) -> str:
     """
     Generate a one-time SSO code for a user.
 
     Args:
         user_id: TMS user ID
         user_data: User data from GCGC
+        gcgc_token: GCGC session token to pass through
 
     Returns:
         One-time SSO code (32-character hex string)
@@ -36,6 +37,7 @@ def generate_sso_code(user_id: str, user_data: Dict[str, any]) -> str:
     _sso_codes[code] = {
         "user_id": user_id,
         "user_data": user_data,
+        "gcgc_token": gcgc_token,  # Store GCGC token for pass-through
         "created_at": time.time(),
         "used": False,
     }
@@ -78,10 +80,11 @@ def validate_sso_code(code: str) -> Optional[Dict[str, any]]:
     # Mark as used
     code_data["used"] = True
 
-    # Return user data
+    # Return user data and GCGC token
     return {
         "user_id": code_data["user_id"],
         "user_data": code_data["user_data"],
+        "gcgc_token": code_data["gcgc_token"],
     }
 
 
