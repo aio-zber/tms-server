@@ -102,7 +102,23 @@ class Settings(BaseSettings):
         if isinstance(self.allowed_origins, str):
             return [origin.strip() for origin in self.allowed_origins.split(",") if origin.strip()]
         return ["http://localhost:3000"]
-    
+
+    def get_tms_client_url(self) -> str:
+        """
+        Get TMS-Client URL without trailing slash.
+
+        Security Note: This URL is used as the redirect_uri in SSO flows.
+        It's derived from the first allowed origin (not user-supplied) to prevent
+        open redirect attacks where attackers could steal SSO codes.
+
+        Returns:
+            First allowed origin URL without trailing slash
+        """
+        origins = self.get_allowed_origins_list()
+        if origins:
+            return origins[0].rstrip('/')
+        return "http://localhost:3000"
+
     def get_allowed_hosts_list(self) -> List[str]:
         """Get allowed hosts as a list."""
         if isinstance(self.allowed_hosts, list):

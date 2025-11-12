@@ -549,7 +549,6 @@ class SSOCodeExchangeRequest(BaseModel):
 @router.get("/sso/check")
 async def sso_check(
     request: Request,
-    redirect_uri: str,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -558,6 +557,11 @@ async def sso_check(
     This endpoint initiates the SSO flow by checking if the user has a valid
     GCGC session. It acts as a proxy between TMS-Client and GCGC, enabling
     server-to-server authentication without cross-domain cookie issues.
+
+    **Security Note:**
+    The redirect_uri is hardcoded in configuration (settings.tms_client_url)
+    to prevent open redirect attacks (CWE-601). This ensures SSO codes are
+    only sent to the legitimate TMS-Client instance, not attacker-controlled URLs.
 
     **Flow:**
     1. TMS-Client redirects browser to this endpoint
@@ -584,6 +588,20 @@ async def sso_check(
     """
     import logging
     logger = logging.getLogger(__name__)
+    from app.config import settings
+
+    # Use hardcoded redirect_uri from config (NOT from query params)
+    # This prevents open redirect attacks where attackers could steal SSO codes
+    redirect_uri = settings.get_tms_client_url()
+
+    # Security logging: warn if someone tries to pass redirect_uri (for monitoring)
+    if request.query_params.get("redirect_uri"):
+        logger.warning(
+            f"⚠️ Security: Ignored user-supplied redirect_uri={request.query_params.get('redirect_uri')} "
+            f"(using configured value: {redirect_uri})"
+        )
+
+    logger.info(f"🔐 SSO Check: Using configured redirect_uri: {redirect_uri}")
 
     # Cookie names to check (NextAuth default names)
     cookie_names = [
@@ -656,15 +674,12 @@ async def sso_check(
     # correctly reflects HTTPS from Railway's X-Forwarded-Proto header
     callback_url = f"{request.url.scheme}://{request.url.netloc}/api/v1/auth/sso/callback"
 
-    # Build full callback URL with redirect_uri as query parameter
-    from urllib.parse import urlencode
-    callback_params = {"redirect_uri": redirect_uri}
-    full_callback_url = f"{callback_url}?{urlencode(callback_params)}"
-
     # Properly encode the callback URL for GCGC's callbackUrl parameter
-    gcgc_redirect_url = f"{gcgc_login_url}?{urlencode({'callbackUrl': full_callback_url})}"
+    # No need to pass redirect_uri as query param - it's hardcoded in /sso/callback endpoint
+    from urllib.parse import urlencode
+    gcgc_redirect_url = f"{gcgc_login_url}?{urlencode({'callbackUrl': callback_url})}"
 
-    logger.info(f"🔐 SSO Check: Redirecting to {gcgc_redirect_url}")
+    logger.info(f"🔐 SSO Check: Redirecting to GCGC: {gcgc_redirect_url}")
 
     # Redirect to GCGC login with properly encoded callback
     return RedirectResponse(
@@ -676,7 +691,6 @@ async def sso_check(
 @router.get("/sso/callback")
 async def sso_callback(
     request: Request,
-    redirect_uri: str,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -686,16 +700,18 @@ async def sso_callback(
     the browser has a GCGC session cookie. We validate it and generate an
     SSO code to pass back to TMS-Client.
 
+    **Security Note:**
+    The redirect_uri is hardcoded in configuration (settings.tms_client_url)
+    to prevent open redirect attacks (CWE-601). This ensures SSO codes are
+    only sent to the legitimate TMS-Client instance, not attacker-controlled URLs.
+
     **Flow:**
     1. User logs into GCGC
     2. GCGC redirects to this endpoint
     3. TMS-Server reads GCGC cookie from browser
     4. TMS-Server validates with GCGC (server-to-server)
     5. TMS-Server generates SSO code
-    6. TMS-Server redirects to TMS-Client with code
-
-    **Query Parameters:**
-    - `redirect_uri`: TMS-Client URL to redirect back to
+    6. TMS-Server redirects to TMS-Client with code (hardcoded URL)
 
     **Returns:**
     - Redirect to TMS-Client with `sso_code` parameter
@@ -703,11 +719,24 @@ async def sso_callback(
     **Usage:**
     ```
     # This endpoint is called automatically by GCGC after login
-    GET /api/v1/auth/sso/callback?redirect_uri=https://tms-client.example.com
+    GET /api/v1/auth/sso/callback
     ```
     """
     import logging
     logger = logging.getLogger(__name__)
+    from app.config import settings
+
+    # Use hardcoded redirect_uri from config (NOT from query params)
+    redirect_uri = settings.get_tms_client_url()
+
+    # Security logging: warn if someone tries to pass redirect_uri
+    if request.query_params.get("redirect_uri"):
+        logger.warning(
+            f"⚠️ Security: Ignored user-supplied redirect_uri={request.query_params.get('redirect_uri')} "
+            f"(using configured value: {redirect_uri})"
+        )
+
+    logger.info(f"🔐 SSO Callback: Using configured redirect_uri: {redirect_uri}")
 
     # Cookie names to check
     cookie_names = [
