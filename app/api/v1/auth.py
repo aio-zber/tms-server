@@ -652,11 +652,23 @@ async def sso_check(
     )
 
     # Build callback URL for GCGC to redirect back to
+    # Note: The proxy_headers_middleware in main.py ensures request.url.scheme
+    # correctly reflects HTTPS from Railway's X-Forwarded-Proto header
     callback_url = f"{request.url.scheme}://{request.url.netloc}/api/v1/auth/sso/callback"
 
-    # Redirect to GCGC login with callback
+    # Build full callback URL with redirect_uri as query parameter
+    from urllib.parse import urlencode
+    callback_params = {"redirect_uri": redirect_uri}
+    full_callback_url = f"{callback_url}?{urlencode(callback_params)}"
+
+    # Properly encode the callback URL for GCGC's callbackUrl parameter
+    gcgc_redirect_url = f"{gcgc_login_url}?{urlencode({'callbackUrl': full_callback_url})}"
+
+    logger.info(f"🔐 SSO Check: Redirecting to {gcgc_redirect_url}")
+
+    # Redirect to GCGC login with properly encoded callback
     return RedirectResponse(
-        url=f"{gcgc_login_url}?callbackUrl={callback_url}?redirect_uri={redirect_uri}",
+        url=gcgc_redirect_url,
         status_code=status.HTTP_302_FOUND
     )
 
