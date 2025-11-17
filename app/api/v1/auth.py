@@ -427,16 +427,37 @@ async def validate_token(
         )
         
     except TMSAPIException as e:
-        return TokenValidationResponse(
-            valid=False,
-            user=None,
-            message=f"Token validation failed: {str(e)}"
+        # Distinguish between authentication failures and network errors
+        error_msg = str(e).lower()
+
+        # If GCGC explicitly rejected the token (401), it's invalid
+        if "401" in error_msg or "unauthorized" in error_msg or "invalid" in error_msg:
+            return TokenValidationResponse(
+                valid=False,
+                user=None,
+                message="Token is invalid or expired"
+            )
+
+        # For network errors, service unavailable, timeouts - raise 503
+        # Client will NOT logout for 503 errors (handles gracefully)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "gcgc_unavailable",
+                "message": "Unable to validate token - GCGC service temporarily unavailable",
+                "hint": "This is a temporary issue. Your session remains valid."
+            }
         )
     except Exception as e:
-        return TokenValidationResponse(
-            valid=False,
-            user=None,
-            message=f"Validation error: {str(e)}"
+        # Unexpected errors - treat as service unavailable to prevent logout
+        logger.error(f"Unexpected error during token validation: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "validation_error",
+                "message": "Unable to validate token due to unexpected error",
+                "hint": "This is a temporary issue. Your session remains valid."
+            }
         )
 
 
