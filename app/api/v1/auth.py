@@ -8,6 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
 from typing import Optional
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 from app.core.database import get_db
 from app.services.user_service import UserService
@@ -43,6 +46,18 @@ class TokenValidationResponse(BaseModel):
     """Token validation response schema."""
     valid: bool
     user: Optional[UserResponse] = None
+    message: str
+
+
+class GCGCSessionValidationRequest(BaseModel):
+    """GCGC session validation request schema."""
+    gcgc_token: str = Field(..., description="GCGC NextAuth session token")
+
+
+class GCGCSessionValidationResponse(BaseModel):
+    """GCGC session validation response schema."""
+    valid: bool
+    user: Optional[dict] = Field(None, description="Current GCGC user info (id and email)")
     message: str
 
 
@@ -458,6 +473,85 @@ async def validate_token(
                 "message": "Unable to validate token due to unexpected error",
                 "hint": "This is a temporary issue. Your session remains valid."
             }
+        )
+
+
+@router.post("/validate-gcgc-session", response_model=GCGCSessionValidationResponse)
+async def validate_gcgc_session(
+    request: GCGCSessionValidationRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Validate GCGC session token and return current user ID.
+
+    Used by TMS-Client to detect account switches on page load.
+    When user closes TMS tab, logs out of GCGC, and logs in as different user,
+    this endpoint allows TMS to detect the mismatch and clear the old session.
+
+    **Request Body:**
+    ```json
+    {
+        "gcgc_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+    }
+    ```
+
+    **Returns:**
+    ```json
+    {
+        "valid": true,
+        "user": {
+            "id": "cmgoip1nt0001s89pzkw7bzlg",
+            "email": "user@example.com"
+        },
+        "message": "GCGC session is valid"
+    }
+    ```
+
+    **Use Case:**
+    - TMS-Client calls this on page load to verify GCGC session matches TMS session
+    - If user IDs don't match, TMS clears old session and redirects to SSO
+
+    **Note:** This endpoint only validates and returns user ID, doesn't sync or login
+    """
+    try:
+        # Validate GCGC session token and get current user
+        tms_user_data = await tms_client.get_current_user_from_tms(request.gcgc_token, use_cache=False)
+
+        return GCGCSessionValidationResponse(
+            valid=True,
+            user={
+                "id": tms_user_data["id"],
+                "email": tms_user_data.get("email", "")
+            },
+            message="GCGC session is valid"
+        )
+
+    except TMSAPIException as e:
+        # GCGC rejected the token or user not found
+        error_msg = str(e).lower()
+
+        if "401" in error_msg or "unauthorized" in error_msg or "invalid" in error_msg:
+            return GCGCSessionValidationResponse(
+                valid=False,
+                user=None,
+                message="GCGC session is invalid or expired"
+            )
+
+        # For network errors - return invalid to trigger re-auth (safer than 503)
+        logger.warning(f"GCGC validation failed (network error): {str(e)}")
+        return GCGCSessionValidationResponse(
+            valid=False,
+            user=None,
+            message="Unable to validate GCGC session"
+        )
+
+    except Exception as e:
+        # Unexpected errors - return invalid to be safe
+        logger.error(f"Unexpected error during GCGC session validation: {str(e)}")
+        return GCGCSessionValidationResponse(
+            valid=False,
+            user=None,
+            message="GCGC session validation failed"
         )
 
 
