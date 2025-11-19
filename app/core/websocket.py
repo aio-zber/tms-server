@@ -440,12 +440,25 @@ class ConnectionManager:
         """
         Broadcast message edit to conversation members.
 
+        Sends standardized payload structure matching other events (reactions, deletions)
+        to ensure frontend deduplication logic works correctly.
+
         Args:
             conversation_id: Conversation UUID
-            message_data: Updated message data
+            message_data: Updated message data (full enriched message object)
         """
         room = f"conversation:{conversation_id}"
-        await self.sio.emit('message_edited', message_data, room=room)
+
+        # Standardize payload structure to match reaction_added/removed events
+        # Frontend expects 'message_id' field for deduplication logic
+        standardized_payload = {
+            'message_id': str(message_data['id']),
+            'content': message_data['content'],
+            'is_edited': message_data.get('is_edited', True),
+            'updated_at': message_data.get('updated_at')
+        }
+
+        await self.sio.emit('message_edited', standardized_payload, room=room)
 
     async def broadcast_message_deleted(
         self,
