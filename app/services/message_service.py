@@ -896,6 +896,9 @@ class MessageService:
         """
         Add a reaction to a message.
 
+        Implements Telegram/Messenger pattern: If user already has a different reaction,
+        automatically switch to the new emoji (remove old, add new).
+
         Args:
             message_id: Message UUID
             user_id: User UUID
@@ -905,7 +908,7 @@ class MessageService:
             Created reaction
 
         Raises:
-            HTTPException: If message not found or already reacted
+            HTTPException: If message not found or already reacted with same emoji
         """
         message = await self.message_repo.get(message_id)
 
@@ -925,6 +928,35 @@ class MessageService:
                 detail="You don't have access to this message"
             )
 
+        # Check if user already has ANY reaction on this message
+        from app.models.message import MessageReaction
+        from sqlalchemy import select, and_
+
+        result = await self.db.execute(
+            select(MessageReaction).where(
+                and_(
+                    MessageReaction.message_id == message_id,
+                    MessageReaction.user_id == user_id
+                )
+            )
+        )
+        existing_reaction = result.scalar_one_or_none()
+
+        # If user already reacted with a DIFFERENT emoji, remove it first (switch behavior)
+        old_emoji = None
+        if existing_reaction and existing_reaction.emoji != emoji:
+            old_emoji = existing_reaction.emoji
+            # Remove the old reaction
+            await self.reaction_repo.remove_reaction(message_id, user_id, old_emoji)
+            # Broadcast removal via WebSocket
+            await self.ws_manager.broadcast_reaction_removed(
+                message.conversation_id,
+                message_id,
+                user_id,
+                old_emoji
+            )
+
+        # Add the new reaction
         reaction = await self.reaction_repo.add_reaction(message_id, user_id, emoji)
 
         if not reaction:
