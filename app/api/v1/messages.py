@@ -149,30 +149,45 @@ async def edit_message(
     - **message_id**: UUID of the message to edit
     - **content**: New message content
     """
-    service = MessageService(db)
+    try:
+        service = MessageService(db)
 
-    # Get user_id from local user record
-    from app.models.user import User
-    from sqlalchemy import select
+        # Get user_id from local user record
+        from app.models.user import User
+        from sqlalchemy import select
 
-    result = await db.execute(
-        select(User).where(User.tms_user_id == current_user["tms_user_id"])
-    )
-    user = result.scalar_one_or_none()
+        result = await db.execute(
+            select(User).where(User.tms_user_id == current_user["tms_user_id"])
+        )
+        user = result.scalar_one_or_none()
 
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found in local database"
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found in local database"
+            )
+
+        message = await service.edit_message(
+            message_id=message_id,
+            user_id=user.id,
+            new_content=message_data.content
         )
 
-    message = await service.edit_message(
-        message_id=message_id,
-        user_id=user.id,
-        new_content=message_data.content
-    )
+        return message
+    except HTTPException:
+        # Re-raise FastAPI HTTP exceptions (404, 403, 400)
+        raise
+    except Exception as e:
+        # Log the full error
+        import traceback
+        print(f"❌ ERROR editing message: {type(e).__name__}: {str(e)}")
+        print(traceback.format_exc())
 
-    return message
+        # Re-raise with more details
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to edit message: {type(e).__name__}: {str(e)}"
+        )
 
 
 @router.delete(
@@ -233,30 +248,45 @@ async def add_reaction(
     - **message_id**: UUID of the message
     - **emoji**: Emoji to react with
     """
-    service = MessageService(db)
+    try:
+        service = MessageService(db)
 
-    # Get user_id from local user record
-    from app.models.user import User
-    from sqlalchemy import select
+        # Get user_id from local user record
+        from app.models.user import User
+        from sqlalchemy import select
 
-    result = await db.execute(
-        select(User).where(User.tms_user_id == current_user["tms_user_id"])
-    )
-    user = result.scalar_one_or_none()
+        result = await db.execute(
+            select(User).where(User.tms_user_id == current_user["tms_user_id"])
+        )
+        user = result.scalar_one_or_none()
 
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found in local database"
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found in local database"
+            )
+
+        reaction = await service.add_reaction(
+            message_id=message_id,
+            user_id=user.id,
+            emoji=reaction_data.emoji
         )
 
-    reaction = await service.add_reaction(
-        message_id=message_id,
-        user_id=user.id,
-        emoji=reaction_data.emoji
-    )
+        return reaction
+    except HTTPException:
+        # Re-raise FastAPI HTTP exceptions (404, 403, 409)
+        raise
+    except Exception as e:
+        # Log the full error
+        import traceback
+        print(f"❌ ERROR adding reaction: {type(e).__name__}: {str(e)}")
+        print(traceback.format_exc())
 
-    return reaction
+        # Re-raise with more details
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to add reaction: {type(e).__name__}: {str(e)}"
+        )
 
 
 @router.delete(
@@ -277,30 +307,45 @@ async def remove_reaction(
     - **message_id**: UUID of the message
     - **emoji**: Emoji to remove
     """
-    service = MessageService(db)
+    try:
+        service = MessageService(db)
 
-    # Get user_id from local user record
-    from app.models.user import User
-    from sqlalchemy import select
+        # Get user_id from local user record
+        from app.models.user import User
+        from sqlalchemy import select
 
-    result = await db.execute(
-        select(User).where(User.tms_user_id == current_user["tms_user_id"])
-    )
-    user = result.scalar_one_or_none()
+        result = await db.execute(
+            select(User).where(User.tms_user_id == current_user["tms_user_id"])
+        )
+        user = result.scalar_one_or_none()
 
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found in local database"
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found in local database"
+            )
+
+        result = await service.remove_reaction(
+            message_id=message_id,
+            user_id=user.id,
+            emoji=emoji
         )
 
-    result = await service.remove_reaction(
-        message_id=message_id,
-        user_id=user.id,
-        emoji=emoji
-    )
+        return result
+    except HTTPException:
+        # Re-raise FastAPI HTTP exceptions (404, 403)
+        raise
+    except Exception as e:
+        # Log the full error
+        import traceback
+        print(f"❌ ERROR removing reaction: {type(e).__name__}: {str(e)}")
+        print(traceback.format_exc())
 
-    return result
+        # Re-raise with more details
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to remove reaction: {type(e).__name__}: {str(e)}"
+        )
 
 
 @router.get(
