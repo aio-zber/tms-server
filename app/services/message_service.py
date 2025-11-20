@@ -205,16 +205,17 @@ class MessageService:
             "metadata_json": message.metadata_json,
             "reply_to_id": message.reply_to_id,
             "is_edited": message.is_edited,
-            "created_at": message.created_at,
-            "updated_at": message.updated_at,
-            "deleted_at": message.deleted_at,
+            # Convert datetime objects to ISO format strings for JSON serialization
+            "created_at": message.created_at.isoformat() if message.created_at else None,
+            "updated_at": message.updated_at.isoformat() if message.updated_at else None,
+            "deleted_at": message.deleted_at.isoformat() if message.deleted_at else None,
             "reactions": [
                 {
                     "id": r.id,
                     "message_id": r.message_id,
                     "user_id": r.user_id,
                     "emoji": r.emoji,
-                    "created_at": r.created_at
+                    "created_at": r.created_at.isoformat() if r.created_at else None
                 }
                 for r in message.reactions
             ],
@@ -223,7 +224,7 @@ class MessageService:
                     "message_id": s.message_id,
                     "user_id": s.user_id,
                     "status": s.status,
-                    "timestamp": s.timestamp
+                    "timestamp": s.timestamp.isoformat() if s.timestamp else None
                 }
                 for s in message.statuses
             ],
@@ -313,9 +314,10 @@ class MessageService:
                             "metadata_json": message.reply_to.metadata_json or {},
                             "reply_to_id": message.reply_to.reply_to_id,
                             "is_edited": message.reply_to.is_edited,
-                            "created_at": message.reply_to.created_at,
-                            "updated_at": message.reply_to.updated_at,
-                            "deleted_at": message.reply_to.deleted_at,
+                            # Convert datetime objects to ISO format strings for JSON serialization
+                            "created_at": message.reply_to.created_at.isoformat() if message.reply_to.created_at else None,
+                            "updated_at": message.reply_to.updated_at.isoformat() if message.reply_to.updated_at else None,
+                            "deleted_at": message.reply_to.deleted_at.isoformat() if message.reply_to.deleted_at else None,
                             "reactions": [],
                             "statuses": [],
                             "sender": None,
