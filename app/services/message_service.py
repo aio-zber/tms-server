@@ -940,7 +940,8 @@ class MessageService:
             "message_id": reaction.message_id,
             "user_id": reaction.user_id,
             "emoji": reaction.emoji,
-            "created_at": reaction.created_at
+            # Convert datetime to ISO format string for JSON serialization
+            "created_at": reaction.created_at.isoformat() if reaction.created_at else None
         }
 
         # Broadcast reaction added via WebSocket
