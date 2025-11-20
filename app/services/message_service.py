@@ -936,9 +936,10 @@ class MessageService:
         await self.db.commit()
 
         reaction_data = {
-            "id": reaction.id,
-            "message_id": reaction.message_id,
-            "user_id": reaction.user_id,
+            # Convert UUIDs to strings for JSON serialization
+            "id": str(reaction.id),
+            "message_id": str(reaction.message_id),
+            "user_id": str(reaction.user_id),
             "emoji": reaction.emoji,
             # Convert datetime to ISO format string for JSON serialization
             "created_at": reaction.created_at.isoformat() if reaction.created_at else None
