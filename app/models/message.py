@@ -37,6 +37,7 @@ class MessageType(str, enum.Enum):
     VOICE = "VOICE"
     POLL = "POLL"
     CALL = "CALL"
+    SYSTEM = "SYSTEM"  # System-generated messages for conversation events
 
 
 class MessageStatusType(str, enum.Enum):

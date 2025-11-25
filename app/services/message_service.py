@@ -875,7 +875,50 @@ class MessageService:
         deleted_message = await self.message_repo.soft_delete(message_id)
         await self.db.commit()
 
-        # Broadcast message deletion via WebSocket
+        # Create system message for deletion
+        try:
+            from app.models.user import User
+            from app.services.system_message_service import SystemMessageService
+            from sqlalchemy import select
+            import logging
+            logger = logging.getLogger(__name__)
+
+            # Get actor (user who deleted the message)
+            result = await self.db.execute(select(User).where(User.id == user_id))
+            actor = result.scalar_one_or_none()
+
+            if actor:
+                system_msg = await SystemMessageService.create_message_deleted_message(
+                    db=self.db,
+                    conversation_id=message.conversation_id,
+                    actor=actor
+                )
+
+                # Broadcast as regular message
+                message_dict = {
+                    'id': str(system_msg.id),
+                    'conversationId': str(system_msg.conversation_id),
+                    'senderId': str(system_msg.sender_id),
+                    'content': system_msg.content,
+                    'type': system_msg.type.value,
+                    'status': 'sent',
+                    'metadata': system_msg.metadata_json,
+                    'isEdited': system_msg.is_edited,
+                    'createdAt': system_msg.created_at.isoformat()
+                }
+
+                await self.ws_manager.broadcast_new_message(
+                    conversation_id=message.conversation_id,
+                    message_data=message_dict
+                )
+
+                logger.info(f"✅ Created and broadcasted system message for message_deleted event")
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to create system message for message_deleted: {e}", exc_info=True)
+
+        # Also broadcast message_deleted event (for UI updates)
         await self.ws_manager.broadcast_message_deleted(
             message.conversation_id,
             message_id
