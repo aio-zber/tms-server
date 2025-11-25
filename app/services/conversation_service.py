@@ -390,10 +390,54 @@ class ConversationService:
 
         await self.db.commit()
 
-        # Broadcast conversation update to all members
+        # Create system message and broadcast
         try:
             from app.core.websocket import connection_manager
+            from app.models.user import User
+            from app.services.system_message_service import SystemMessageService
+            from sqlalchemy import select
+            import logging
+            logger = logging.getLogger(__name__)
 
+            # Get actor
+            result = await self.db.execute(select(User).where(User.id == user_id))
+            actor = result.scalar_one_or_none()
+
+            if actor:
+                updates_dict = {}
+                if name is not None:
+                    updates_dict['name'] = name
+                if avatar_url is not None:
+                    updates_dict['avatar_url'] = avatar_url
+
+                system_msg = await SystemMessageService.create_conversation_updated_message(
+                    db=self.db,
+                    conversation_id=conversation_id,
+                    actor=actor,
+                    updates=updates_dict
+                )
+
+                # Broadcast as regular message
+                message_dict = {
+                    'id': str(system_msg.id),
+                    'conversationId': str(system_msg.conversation_id),
+                    'senderId': str(system_msg.sender_id),
+                    'content': system_msg.content,
+                    'type': system_msg.type.value,
+                    'status': 'sent',
+                    'metadata': system_msg.metadata_json,
+                    'isEdited': system_msg.is_edited,
+                    'createdAt': system_msg.created_at.isoformat()
+                }
+
+                await connection_manager.broadcast_new_message(
+                    conversation_id=conversation_id,
+                    message_data=message_dict
+                )
+
+                logger.info(f"✅ Created and broadcasted system message for conversation_updated event")
+
+            # Also broadcast conversation_updated event (for conversation list updates)
             await connection_manager.broadcast_conversation_updated(
                 conversation_id=conversation_id,
                 updated_by=user_id,
@@ -401,10 +445,9 @@ class ConversationService:
                 avatar_url=avatar_url
             )
         except Exception as ws_error:
-            # Log error but don't fail the operation
             import logging
             logger = logging.getLogger(__name__)
-            logger.error(f"Failed to broadcast conversation_updated event: {ws_error}")
+            logger.error(f"Failed to create/broadcast system message: {ws_error}", exc_info=True)
 
         # Reload and enrich
         updated_conversation = await self.conversation_repo.get_with_relations(conversation_id)
@@ -469,34 +512,72 @@ class ConversationService:
         added_count = await self.member_repo.add_members(conversation_id, member_ids)
         await self.db.commit()
 
-        # Broadcast member addition to all conversation members
+        # Create system message and broadcast
         try:
             from app.core.websocket import connection_manager
             from app.models.user import User
+            from app.services.system_message_service import SystemMessageService
             from sqlalchemy import select
+            import logging
+            logger = logging.getLogger(__name__)
 
-            # Get added members' details for broadcast
+            # Get actor (user who added members)
+            result = await self.db.execute(select(User).where(User.id == user_id))
+            actor = result.scalar_one_or_none()
+
+            # Get added members' details
             added_members_data = []
             for uid in member_ids:
                 result = await self.db.execute(select(User).where(User.id == uid))
                 added_user = result.scalar_one_or_none()
                 if added_user:
                     added_members_data.append({
+                        'id': added_user.id,
                         'user_id': added_user.id,
                         'full_name': f"{added_user.first_name} {added_user.last_name}".strip() or added_user.email,
                         'role': 'MEMBER'
                     })
 
+            # Create system message in database
+            if actor and added_members_data:
+                system_msg = await SystemMessageService.create_member_added_message(
+                    db=self.db,
+                    conversation_id=conversation_id,
+                    actor=actor,
+                    added_members=added_members_data
+                )
+
+                # Convert message to dict for broadcasting
+                message_dict = {
+                    'id': str(system_msg.id),
+                    'conversationId': str(system_msg.conversation_id),
+                    'senderId': str(system_msg.sender_id),
+                    'content': system_msg.content,
+                    'type': system_msg.type.value,
+                    'status': 'sent',
+                    'metadata': system_msg.metadata_json,
+                    'isEdited': system_msg.is_edited,
+                    'createdAt': system_msg.created_at.isoformat()
+                }
+
+                # Broadcast system message as regular message
+                await connection_manager.broadcast_new_message(
+                    conversation_id=conversation_id,
+                    message_data=message_dict
+                )
+
+                logger.info(f"✅ Created and broadcasted system message for member_added event")
+
+            # Also broadcast member_added event (for member list updates)
             await connection_manager.broadcast_member_added(
                 conversation_id=conversation_id,
                 added_members=added_members_data,
                 added_by=user_id
             )
         except Exception as ws_error:
-            # Log error but don't fail the operation
             import logging
             logger = logging.getLogger(__name__)
-            logger.error(f"Failed to broadcast member_added event: {ws_error}")
+            logger.error(f"Failed to create/broadcast system message: {ws_error}", exc_info=True)
 
         return {
             "success": True,
@@ -558,20 +639,60 @@ class ConversationService:
 
         await self.db.commit()
 
-        # Broadcast member removal to all conversation members
+        # Create system message and broadcast
         try:
             from app.core.websocket import connection_manager
+            from app.models.user import User
+            from app.services.system_message_service import SystemMessageService
+            from sqlalchemy import select
+            import logging
+            logger = logging.getLogger(__name__)
 
+            # Get actor and removed user
+            result = await self.db.execute(select(User).where(User.id == user_id))
+            actor = result.scalar_one_or_none()
+
+            result = await self.db.execute(select(User).where(User.id == member_id))
+            removed_user = result.scalar_one_or_none()
+
+            if actor and removed_user:
+                system_msg = await SystemMessageService.create_member_removed_message(
+                    db=self.db,
+                    conversation_id=conversation_id,
+                    actor=actor,
+                    removed_user=removed_user
+                )
+
+                # Broadcast as regular message
+                message_dict = {
+                    'id': str(system_msg.id),
+                    'conversationId': str(system_msg.conversation_id),
+                    'senderId': str(system_msg.sender_id),
+                    'content': system_msg.content,
+                    'type': system_msg.type.value,
+                    'status': 'sent',
+                    'metadata': system_msg.metadata_json,
+                    'isEdited': system_msg.is_edited,
+                    'createdAt': system_msg.created_at.isoformat()
+                }
+
+                await connection_manager.broadcast_new_message(
+                    conversation_id=conversation_id,
+                    message_data=message_dict
+                )
+
+                logger.info(f"✅ Created and broadcasted system message for member_removed event")
+
+            # Also broadcast member_removed event (for member list updates)
             await connection_manager.broadcast_member_removed(
                 conversation_id=conversation_id,
                 removed_user_id=member_id,
                 removed_by=user_id
             )
         except Exception as ws_error:
-            # Log error but don't fail the operation
             import logging
             logger = logging.getLogger(__name__)
-            logger.error(f"Failed to broadcast member_removed event: {ws_error}")
+            logger.error(f"Failed to create/broadcast system message: {ws_error}", exc_info=True)
 
         return {
             "success": True,
@@ -614,24 +735,54 @@ class ConversationService:
         if not user_name:
             user_name = user.email if user else "Unknown User"
 
-        # Broadcast BEFORE removing (so user still in room to receive)
+        # Remove member
+        await self.member_repo.remove_member(conversation_id, user_id)
+        await self.db.commit()
+
+        # Create system message and broadcast
         try:
             from app.core.websocket import connection_manager
+            from app.services.system_message_service import SystemMessageService
+            import logging
+            logger = logging.getLogger(__name__)
 
+            if user:
+                system_msg = await SystemMessageService.create_member_left_message(
+                    db=self.db,
+                    conversation_id=conversation_id,
+                    user=user
+                )
+
+                # Broadcast as regular message
+                message_dict = {
+                    'id': str(system_msg.id),
+                    'conversationId': str(system_msg.conversation_id),
+                    'senderId': str(system_msg.sender_id),
+                    'content': system_msg.content,
+                    'type': system_msg.type.value,
+                    'status': 'sent',
+                    'metadata': system_msg.metadata_json,
+                    'isEdited': system_msg.is_edited,
+                    'createdAt': system_msg.created_at.isoformat()
+                }
+
+                await connection_manager.broadcast_new_message(
+                    conversation_id=conversation_id,
+                    message_data=message_dict
+                )
+
+                logger.info(f"✅ Created and broadcasted system message for member_left event")
+
+            # Also broadcast member_left event (for member list updates)
             await connection_manager.broadcast_member_left(
                 conversation_id=conversation_id,
                 user_id=user_id,
                 user_name=user_name
             )
         except Exception as ws_error:
-            # Log error but don't fail the operation
             import logging
             logger = logging.getLogger(__name__)
-            logger.error(f"Failed to broadcast member_left event: {ws_error}")
-
-        # Remove member (after broadcast)
-        await self.member_repo.remove_member(conversation_id, user_id)
-        await self.db.commit()
+            logger.error(f"Failed to create/broadcast system message: {ws_error}", exc_info=True)
 
         return {
             "success": True,
