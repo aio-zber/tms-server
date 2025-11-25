@@ -18,7 +18,27 @@ depends_on = None
 
 def upgrade() -> None:
     # Add SYSTEM to the message_type enum
-    op.execute("ALTER TYPE message_type ADD VALUE IF NOT EXISTS 'SYSTEM'")
+    # First, check if the type exists and create it if not (handles edge cases)
+    op.execute("""
+        DO $$
+        BEGIN
+            -- Check if the enum type exists
+            IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'message_type') THEN
+                -- Create the enum type with existing values + SYSTEM
+                CREATE TYPE message_type AS ENUM ('TEXT', 'IMAGE', 'FILE', 'VOICE', 'POLL', 'CALL', 'SYSTEM');
+            ELSE
+                -- Add SYSTEM value if the type exists (PostgreSQL 9.1+)
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_enum
+                    WHERE enumlabel = 'SYSTEM'
+                    AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'message_type')
+                ) THEN
+                    ALTER TYPE message_type ADD VALUE 'SYSTEM';
+                END IF;
+            END IF;
+        END
+        $$;
+    """)
 
 
 def downgrade() -> None:
