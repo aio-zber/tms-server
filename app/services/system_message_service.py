@@ -24,6 +24,18 @@ class SystemMessageService:
     """Service for creating system messages for conversation events."""
 
     @staticmethod
+    def _get_user_display_name(user: User) -> str:
+        """
+        Get display name for a user.
+
+        Priority: first_name + last_name > username > email
+        """
+        if user.first_name or user.last_name:
+            parts = [p for p in [user.first_name, user.last_name] if p]
+            return ' '.join(parts)
+        return user.username or user.email or "Someone"
+
+    @staticmethod
     async def create_member_added_message(
         db: AsyncSession,
         conversation_id: UUID,
@@ -45,19 +57,21 @@ class SystemMessageService:
         member_names = [m['full_name'] for m in added_members]
         member_ids = [str(m['id']) for m in added_members]
 
+        actor_name = SystemMessageService._get_user_display_name(actor)
+
         # Generate human-readable content
         if len(member_names) == 1:
-            content = f"{actor.full_name} added {member_names[0]} to the group"
+            content = f"{actor_name} added {member_names[0]} to the group"
         else:
             names_str = ', '.join(member_names)
-            content = f"{actor.full_name} added {names_str} to the group"
+            content = f"{actor_name} added {names_str} to the group"
 
         # Create metadata with event details
         metadata = {
             'system': {
                 'eventType': 'member_added',
                 'actorId': str(actor.id),
-                'actorName': actor.full_name,
+                'actorName': actor_name,
                 'addedMemberIds': member_ids,
                 'addedMemberNames': member_names
             }
@@ -90,15 +104,18 @@ class SystemMessageService:
         Returns:
             Created Message object
         """
-        content = f"{actor.full_name} removed {removed_user.full_name}"
+        actor_name = SystemMessageService._get_user_display_name(actor)
+        removed_name = SystemMessageService._get_user_display_name(removed_user)
+
+        content = f"{actor_name} removed {removed_name}"
 
         metadata = {
             'system': {
                 'eventType': 'member_removed',
                 'actorId': str(actor.id),
-                'actorName': actor.full_name,
+                'actorName': actor_name,
                 'targetUserId': str(removed_user.id),
-                'targetUserName': removed_user.full_name
+                'targetUserName': removed_name
             }
         }
 
@@ -127,13 +144,15 @@ class SystemMessageService:
         Returns:
             Created Message object
         """
-        content = f"{user.full_name} left the group"
+        user_name = SystemMessageService._get_user_display_name(user)
+
+        content = f"{user_name} left the group"
 
         metadata = {
             'system': {
                 'eventType': 'member_left',
                 'actorId': str(user.id),
-                'actorName': user.full_name
+                'actorName': user_name
             }
         }
 
@@ -164,19 +183,21 @@ class SystemMessageService:
         Returns:
             Created Message object
         """
+        actor_name = SystemMessageService._get_user_display_name(actor)
+
         # Generate content based on what was updated
         if 'name' in updates and updates['name']:
-            content = f'{actor.full_name} changed the group name to "{updates["name"]}"'
+            content = f'{actor_name} changed the group name to "{updates["name"]}"'
         elif 'avatar_url' in updates and updates['avatar_url']:
-            content = f"{actor.full_name} changed the group photo"
+            content = f"{actor_name} changed the group photo"
         else:
-            content = f"{actor.full_name} updated the group"
+            content = f"{actor_name} updated the group"
 
         metadata = {
             'system': {
                 'eventType': 'conversation_updated',
                 'actorId': str(actor.id),
-                'actorName': actor.full_name,
+                'actorName': actor_name,
                 'details': updates
             }
         }
@@ -206,13 +227,15 @@ class SystemMessageService:
         Returns:
             Created Message object
         """
-        content = f"{actor.full_name} deleted a message"
+        actor_name = SystemMessageService._get_user_display_name(actor)
+
+        content = f"{actor_name} deleted a message"
 
         metadata = {
             'system': {
                 'eventType': 'message_deleted',
                 'actorId': str(actor.id),
-                'actorName': actor.full_name
+                'actorName': actor_name
             }
         }
 
