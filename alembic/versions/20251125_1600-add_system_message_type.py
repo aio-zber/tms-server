@@ -1,7 +1,7 @@
 """add system message type
 
 Revision ID: 20251125_1600
-Revises: 20251027_0920
+Revises: a1b2c3d4e5f6
 Create Date: 2025-11-25 16:00:00.000000
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '20251125_1600'
-down_revision = '20251027_0920'
+down_revision = 'a1b2c3d4e5f6'
 branch_labels = None
 depends_on = None
 
