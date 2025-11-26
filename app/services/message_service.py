@@ -593,11 +593,12 @@ class MessageService:
                 detail="You are not a member of this conversation"
             )
 
-        # Get messages
+        # Get messages (include deleted messages to show "User removed a message" placeholder)
         messages, next_cursor, has_more = await self.message_repo.get_conversation_messages(
             conversation_id,
             limit,
-            cursor
+            cursor,
+            include_deleted=True  # FIX: Include soft-deleted messages (Messenger/Telegram pattern)
         )
 
         print(f"[MESSAGE_SERVICE] 📦 Fetched {len(messages)} messages from DB")
