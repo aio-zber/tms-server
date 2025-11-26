@@ -881,25 +881,14 @@ class MessageService:
             import logging
             logger = logging.getLogger(__name__)
 
-            # Enrich the deleted message for broadcast
-            enriched = await self._enrich_message_dict({
-                'id': str(deleted_message.id),
-                'conversation_id': str(deleted_message.conversation_id),
-                'sender_id': str(deleted_message.sender_id),
-                'content': deleted_message.content,  # Original content (will be replaced client-side)
-                'type': deleted_message.type.value,
-                'reply_to_id': str(deleted_message.reply_to_id) if deleted_message.reply_to_id else None,
-                'metadata_json': deleted_message.metadata_json,
-                'is_edited': deleted_message.is_edited,
-                'created_at': deleted_message.created_at,
-                'updated_at': deleted_message.updated_at,
-                'deleted_at': deleted_message.deleted_at
-            })
+            # Reload with relations and enrich (same pattern as edit_message)
+            deleted_message_with_relations = await self.message_repo.get_with_relations(message_id)
+            enriched_message = await self._enrich_message_with_user_data(deleted_message_with_relations, user_id)
 
             # Broadcast message:edit event (clients will show "You removed a message")
             await self.ws_manager.broadcast_message_edited(
-                conversation_id=deleted_message.conversation_id,
-                message_data=enriched
+                conversation_id=message.conversation_id,
+                message_data=enriched_message
             )
 
             logger.info(f"✅ Broadcasted message:edit event for deleted message {message_id}")
