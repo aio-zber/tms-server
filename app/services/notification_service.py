@@ -1,0 +1,236 @@
+"""
+Notification service for business logic.
+Handles notification preferences and muted conversations.
+"""
+from typing import Optional, List, Dict, Any
+from datetime import datetime, time as Time
+import logging
+
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, and_
+from sqlalchemy.orm import selectinload
+
+from app.models.notification_preferences import NotificationPreferences
+from app.models.muted_conversation import MutedConversation
+from app.models.user import User
+from app.schemas.notification import (
+    NotificationPreferencesResponse,
+    NotificationPreferencesUpdate,
+    MutedConversationResponse,
+    MutedConversationListResponse
+)
+
+logger = logging.getLogger(__name__)
+
+
+class NotificationService:
+    """Service for notification-related business logic."""
+
+    def __init__(self, db: AsyncSession):
+        """Initialize notification service."""
+        self.db = db
+
+    async def get_or_create_preferences(self, user_id: str) -> NotificationPreferencesResponse:
+        """
+        Get user's notification preferences, creating defaults if not exists.
+
+        Args:
+            user_id: User ID
+
+        Returns:
+            NotificationPreferencesResponse
+        """
+        # Try to get existing preferences
+        stmt = select(NotificationPreferences).where(
+            NotificationPreferences.user_id == user_id
+        )
+        result = await self.db.execute(stmt)
+        preferences = result.scalar_one_or_none()
+
+        # Create defaults if not exists
+        if not preferences:
+            preferences = NotificationPreferences(
+                user_id=user_id,
+                sound_enabled=True,
+                sound_volume=75,
+                browser_notifications_enabled=False,
+                enable_message_notifications=True,
+                enable_mention_notifications=True,
+                enable_reaction_notifications=True,
+                enable_member_activity_notifications=False,
+                dnd_enabled=False,
+                dnd_start=None,
+                dnd_end=None
+            )
+            self.db.add(preferences)
+            await self.db.commit()
+            await self.db.refresh(preferences)
+
+            logger.info(f"Created default notification preferences for user {user_id}")
+
+        return NotificationPreferencesResponse.model_validate(preferences)
+
+    async def update_preferences(
+        self,
+        user_id: str,
+        updates: NotificationPreferencesUpdate
+    ) -> NotificationPreferencesResponse:
+        """
+        Update user's notification preferences.
+
+        Args:
+            user_id: User ID
+            updates: Preference updates
+
+        Returns:
+            Updated NotificationPreferencesResponse
+        """
+        # Get existing preferences (create if not exists)
+        stmt = select(NotificationPreferences).where(
+            NotificationPreferences.user_id == user_id
+        )
+        result = await self.db.execute(stmt)
+        preferences = result.scalar_one_or_none()
+
+        # Create if not exists
+        if not preferences:
+            preferences = NotificationPreferences(user_id=user_id)
+            self.db.add(preferences)
+
+        # Apply updates (only update fields that are provided)
+        update_data = updates.model_dump(exclude_unset=True)
+
+        # Convert time strings to Python time objects for database
+        if 'dnd_start' in update_data and update_data['dnd_start'] is not None:
+            update_data['dnd_start'] = Time.fromisoformat(update_data['dnd_start'])
+        if 'dnd_end' in update_data and update_data['dnd_end'] is not None:
+            update_data['dnd_end'] = Time.fromisoformat(update_data['dnd_end'])
+
+        for key, value in update_data.items():
+            setattr(preferences, key, value)
+
+        await self.db.commit()
+        await self.db.refresh(preferences)
+
+        logger.info(f"Updated notification preferences for user {user_id}")
+
+        # Convert time objects back to strings for response
+        response_dict = {
+            'id': str(preferences.id),
+            'user_id': str(preferences.user_id),
+            'sound_enabled': preferences.sound_enabled,
+            'sound_volume': preferences.sound_volume,
+            'browser_notifications_enabled': preferences.browser_notifications_enabled,
+            'enable_message_notifications': preferences.enable_message_notifications,
+            'enable_mention_notifications': preferences.enable_mention_notifications,
+            'enable_reaction_notifications': preferences.enable_reaction_notifications,
+            'enable_member_activity_notifications': preferences.enable_member_activity_notifications,
+            'dnd_enabled': preferences.dnd_enabled,
+            'dnd_start': preferences.dnd_start.isoformat() if preferences.dnd_start else None,
+            'dnd_end': preferences.dnd_end.isoformat() if preferences.dnd_end else None,
+            'created_at': preferences.created_at,
+            'updated_at': preferences.updated_at
+        }
+
+        return NotificationPreferencesResponse.model_validate(response_dict)
+
+    async def mute_conversation(
+        self,
+        user_id: str,
+        conversation_id: str
+    ) -> MutedConversationResponse:
+        """
+        Mute a conversation for a user.
+
+        Args:
+            user_id: User ID
+            conversation_id: Conversation ID
+
+        Returns:
+            MutedConversationResponse
+        """
+        # Check if already muted
+        stmt = select(MutedConversation).where(
+            and_(
+                MutedConversation.user_id == user_id,
+                MutedConversation.conversation_id == conversation_id
+            )
+        )
+        result = await self.db.execute(stmt)
+        existing = result.scalar_one_or_none()
+
+        if existing:
+            # Already muted, return existing
+            return MutedConversationResponse.model_validate(existing)
+
+        # Create new muted conversation
+        muted = MutedConversation(
+            user_id=user_id,
+            conversation_id=conversation_id
+        )
+        self.db.add(muted)
+        await self.db.commit()
+        await self.db.refresh(muted)
+
+        logger.info(f"User {user_id} muted conversation {conversation_id}")
+
+        return MutedConversationResponse.model_validate(muted)
+
+    async def unmute_conversation(
+        self,
+        user_id: str,
+        conversation_id: str
+    ) -> bool:
+        """
+        Unmute a conversation for a user.
+
+        Args:
+            user_id: User ID
+            conversation_id: Conversation ID
+
+        Returns:
+            True if unmuted, False if wasn't muted
+        """
+        stmt = select(MutedConversation).where(
+            and_(
+                MutedConversation.user_id == user_id,
+                MutedConversation.conversation_id == conversation_id
+            )
+        )
+        result = await self.db.execute(stmt)
+        muted = result.scalar_one_or_none()
+
+        if not muted:
+            return False
+
+        await self.db.delete(muted)
+        await self.db.commit()
+
+        logger.info(f"User {user_id} unmuted conversation {conversation_id}")
+
+        return True
+
+    async def get_muted_conversations(self, user_id: str) -> MutedConversationListResponse:
+        """
+        Get all muted conversations for a user.
+
+        Args:
+            user_id: User ID
+
+        Returns:
+            MutedConversationListResponse
+        """
+        stmt = select(MutedConversation).where(
+            MutedConversation.user_id == user_id
+        ).order_by(MutedConversation.muted_at.desc())
+
+        result = await self.db.execute(stmt)
+        muted_convos = result.scalars().all()
+
+        return MutedConversationListResponse(
+            muted_conversations=[
+                MutedConversationResponse.model_validate(mc)
+                for mc in muted_convos
+            ],
+            total=len(muted_convos)
+        )

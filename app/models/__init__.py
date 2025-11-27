@@ -14,6 +14,8 @@ from app.models.message import Message, MessageStatus, MessageReaction, MessageT
 from app.models.user_block import UserBlock
 from app.models.call import Call, CallParticipant, CallType, CallStatus
 from app.models.poll import Poll, PollOption, PollVote
+from app.models.notification_preferences import NotificationPreferences
+from app.models.muted_conversation import MutedConversation
 
 # Export all models and enums
 __all__ = [
@@ -45,4 +47,7 @@ __all__ = [
     "Poll",
     "PollOption",
     "PollVote",
+    # Notifications
+    "NotificationPreferences",
+    "MutedConversation",
 ]

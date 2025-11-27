@@ -17,6 +17,8 @@ if TYPE_CHECKING:
     from app.models.message import Message, MessageStatus, MessageReaction
     from app.models.user_block import UserBlock
     from app.models.call import CallParticipant
+    from app.models.notification_preferences import NotificationPreferences
+    from app.models.muted_conversation import MutedConversation
 
 
 class User(Base, UUIDMixin):
@@ -217,6 +219,20 @@ class User(Base, UUIDMixin):
     call_participations: Mapped[List["CallParticipant"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan"
+    )
+
+    # Notification relationships
+    notification_preferences: Mapped["NotificationPreferences | None"] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        uselist=False,
+        doc="User's notification preferences (one-to-one)"
+    )
+
+    muted_conversations: Mapped[List["MutedConversation"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        doc="Conversations muted by this user"
     )
 
     def __repr__(self) -> str:

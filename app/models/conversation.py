@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from app.models.user import User
     from app.models.message import Message
     from app.models.call import Call
+    from app.models.muted_conversation import MutedConversation
 
 
 class ConversationType(str, enum.Enum):
@@ -89,6 +90,12 @@ class Conversation(Base, UUIDMixin, TimestampMixin):
     )
 
     creator: Mapped["User"] = relationship(foreign_keys=[created_by])
+
+    muted_by_users: Mapped[List["MutedConversation"]] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        doc="Users who have muted this conversation"
+    )
 
     def __repr__(self) -> str:
         return f"<Conversation(id={self.id}, type={self.type}, name={self.name})>"
