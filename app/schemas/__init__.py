@@ -36,6 +36,14 @@ from app.schemas.user import (
     UserSyncRequest,
     UserSyncResponse
 )
+from app.schemas.notification import (
+    NotificationPreferencesBase,
+    NotificationPreferencesUpdate,
+    NotificationPreferencesResponse,
+    MutedConversationBase,
+    MutedConversationResponse,
+    MutedConversationListResponse
+)
 
 __all__ = [
     "MessageCreate",
@@ -66,4 +74,10 @@ __all__ = [
     "UserSearchRequest",
     "UserSyncRequest",
     "UserSyncResponse",
+    "NotificationPreferencesBase",
+    "NotificationPreferencesUpdate",
+    "NotificationPreferencesResponse",
+    "MutedConversationBase",
+    "MutedConversationResponse",
+    "MutedConversationListResponse",
 ]

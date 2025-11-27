@@ -249,7 +249,7 @@ async def websocket_health_check():
 
 
 # Include API routers
-from app.api.v1 import messages, conversations, users, auth, polls
+from app.api.v1 import messages, conversations, users, auth, polls, notifications
 
 app.include_router(
     messages.router,
@@ -279,6 +279,12 @@ app.include_router(
     polls.router,
     prefix="/api/v1/polls",
     tags=["Polls"]
+)
+
+app.include_router(
+    notifications.router,
+    prefix="/api/v1/notifications",
+    tags=["Notifications"]
 )
 
 # Wrap FastAPI with Socket.IO
