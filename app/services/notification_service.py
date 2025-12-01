@@ -68,7 +68,25 @@ class NotificationService:
 
             logger.info(f"Created default notification preferences for user {user_id}")
 
-        return NotificationPreferencesResponse.model_validate(preferences)
+        # Convert to response format (handle Time objects)
+        response_dict = {
+            'id': str(preferences.id),
+            'user_id': str(preferences.user_id),
+            'sound_enabled': preferences.sound_enabled,
+            'sound_volume': preferences.sound_volume,
+            'browser_notifications_enabled': preferences.browser_notifications_enabled,
+            'enable_message_notifications': preferences.enable_message_notifications,
+            'enable_mention_notifications': preferences.enable_mention_notifications,
+            'enable_reaction_notifications': preferences.enable_reaction_notifications,
+            'enable_member_activity_notifications': preferences.enable_member_activity_notifications,
+            'dnd_enabled': preferences.dnd_enabled,
+            'dnd_start': preferences.dnd_start.isoformat() if preferences.dnd_start else None,
+            'dnd_end': preferences.dnd_end.isoformat() if preferences.dnd_end else None,
+            'created_at': preferences.created_at,
+            'updated_at': preferences.updated_at
+        }
+
+        return NotificationPreferencesResponse.model_validate(response_dict)
 
     async def update_preferences(
         self,
