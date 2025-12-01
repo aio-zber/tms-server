@@ -2,6 +2,7 @@
 Notification API endpoints.
 Provides notification preferences and muted conversation management.
 """
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +16,8 @@ from app.schemas.notification import (
     MutedConversationResponse,
     MutedConversationListResponse
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -41,6 +44,7 @@ async def get_notification_preferences(
         )
         return preferences
     except Exception as e:
+        logger.error(f"Failed to get notification preferences: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get notification preferences: {str(e)}"

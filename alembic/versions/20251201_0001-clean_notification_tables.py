@@ -21,8 +21,18 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     """Add notification_preferences and muted_conversations tables only."""
 
-    # Create notification_preferences table
-    op.create_table(
+    # Import for checking table existence
+    from sqlalchemy import inspect
+    from sqlalchemy.engine import reflection
+
+    # Get connection
+    connection = op.get_bind()
+    inspector = inspect(connection)
+    existing_tables = inspector.get_table_names()
+
+    # Create notification_preferences table only if it doesn't exist
+    if 'notification_preferences' not in existing_tables:
+        op.create_table(
         'notification_preferences',
         sa.Column('user_id', sa.Uuid(), nullable=False),
         sa.Column('sound_enabled', sa.Boolean(), server_default='true', nullable=False),
@@ -41,15 +51,16 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id')
     )
-    op.create_index(
-        op.f('ix_notification_preferences_user_id'),
-        'notification_preferences',
-        ['user_id'],
-        unique=True
-    )
+        op.create_index(
+            op.f('ix_notification_preferences_user_id'),
+            'notification_preferences',
+            ['user_id'],
+            unique=True
+        )
 
-    # Create muted_conversations table
-    op.create_table(
+    # Create muted_conversations table only if it doesn't exist
+    if 'muted_conversations' not in existing_tables:
+        op.create_table(
         'muted_conversations',
         sa.Column('user_id', sa.Uuid(), nullable=False),
         sa.Column('conversation_id', sa.Uuid(), nullable=False),
@@ -60,18 +71,18 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint('id'),
         sa.UniqueConstraint('user_id', 'conversation_id', name='uq_muted_conversations_user_conversation')
     )
-    op.create_index(
-        'ix_muted_conversations_conversation_id',
-        'muted_conversations',
-        ['conversation_id'],
-        unique=False
-    )
-    op.create_index(
-        op.f('ix_muted_conversations_user_id'),
-        'muted_conversations',
-        ['user_id'],
-        unique=False
-    )
+        op.create_index(
+            'ix_muted_conversations_conversation_id',
+            'muted_conversations',
+            ['conversation_id'],
+            unique=False
+        )
+        op.create_index(
+            op.f('ix_muted_conversations_user_id'),
+            'muted_conversations',
+            ['user_id'],
+            unique=False
+        )
 
 
 def downgrade() -> None:
