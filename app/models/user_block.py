@@ -5,9 +5,8 @@ Allows users to block other users from sending them messages.
 """
 from datetime import datetime
 from typing import TYPE_CHECKING
-from uuid import UUID
 
-from sqlalchemy import ForeignKey, Index, func
+from sqlalchemy import ForeignKey, Index, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -29,13 +28,15 @@ class UserBlock(Base):
     __tablename__ = "user_blocks"
 
     # Composite primary key
-    blocker_id: Mapped[UUID] = mapped_column(
+    blocker_id: Mapped[str] = mapped_column(
+        String(255),
         ForeignKey("users.id", ondelete="CASCADE"),
         primary_key=True,
         doc="User who is blocking"
     )
 
-    blocked_id: Mapped[UUID] = mapped_column(
+    blocked_id: Mapped[str] = mapped_column(
+        String(255),
         ForeignKey("users.id", ondelete="CASCADE"),
         primary_key=True,
         doc="User who is being blocked"

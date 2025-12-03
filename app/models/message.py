@@ -6,7 +6,6 @@ Handles all message types, delivery status, and reactions.
 import enum
 from datetime import datetime
 from typing import TYPE_CHECKING, List
-from uuid import UUID
 
 from sqlalchemy import (
     CheckConstraint,
@@ -57,14 +56,16 @@ class Message(Base, UUIDMixin):
     __tablename__ = "messages"
 
     # References
-    conversation_id: Mapped[UUID] = mapped_column(
+    conversation_id: Mapped[str] = mapped_column(
+        String(255),
         ForeignKey("conversations.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         doc="Conversation this message belongs to"
     )
 
-    sender_id: Mapped[UUID] = mapped_column(
+    sender_id: Mapped[str] = mapped_column(
+        String(255),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -93,7 +94,8 @@ class Message(Base, UUIDMixin):
     )
 
     # Threading
-    reply_to_id: Mapped[UUID | None] = mapped_column(
+    reply_to_id: Mapped[str | None] = mapped_column(
+        String(255),
         ForeignKey("messages.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
@@ -172,13 +174,15 @@ class MessageStatus(Base):
     __tablename__ = "message_status"
 
     # Composite primary key
-    message_id: Mapped[UUID] = mapped_column(
+    message_id: Mapped[str] = mapped_column(
+        String(255),
         ForeignKey("messages.id", ondelete="CASCADE"),
         primary_key=True,
         doc="Message ID"
     )
 
-    user_id: Mapped[UUID] = mapped_column(
+    user_id: Mapped[str] = mapped_column(
+        String(255),
         ForeignKey("users.id", ondelete="CASCADE"),
         primary_key=True,
         doc="User ID"
@@ -219,14 +223,16 @@ class MessageReaction(Base, UUIDMixin):
     __tablename__ = "message_reactions"
 
     # References
-    message_id: Mapped[UUID] = mapped_column(
+    message_id: Mapped[str] = mapped_column(
+        String(255),
         ForeignKey("messages.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         doc="Message ID"
     )
 
-    user_id: Mapped[UUID] = mapped_column(
+    user_id: Mapped[str] = mapped_column(
+        String(255),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
