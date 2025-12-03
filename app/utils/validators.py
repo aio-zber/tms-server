@@ -9,27 +9,41 @@ from uuid import UUID
 from fastapi import HTTPException, status
 
 
-def validate_uuid(value: str, field_name: str = "ID") -> UUID:
+def validate_id(value: str, field_name: str = "ID") -> str:
     """
-    Validate and convert string to UUID.
+    Validate ID string (supports both UUID and CUID formats).
 
     Args:
         value: String value to validate
         field_name: Name of the field for error messages
 
     Returns:
-        UUID object
+        The validated ID string
 
     Raises:
-        HTTPException: If value is not a valid UUID
+        HTTPException: If value is not a valid ID format
     """
-    try:
-        return UUID(value)
-    except (ValueError, AttributeError):
+    if not value or not isinstance(value, str):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid {field_name}: must be a valid UUID"
+            detail=f"Invalid {field_name}: must be a non-empty string"
         )
+
+    # Check if it's a valid UUID format
+    try:
+        UUID(value)
+        return value
+    except (ValueError, AttributeError):
+        pass
+
+    # Check if it's a valid CUID format (alphanumeric, 20-30 chars)
+    if re.match(r'^[a-z0-9]{20,30}$', value):
+        return value
+
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=f"Invalid {field_name}: must be a valid UUID or CUID format"
+    )
 
 
 def validate_emoji(emoji: str) -> bool:
@@ -181,13 +195,13 @@ def validate_pagination_params(limit: int, cursor: Optional[str] = None) -> dict
         limit = 100  # Cap at maximum
 
     # Validate cursor if provided
-    cursor_uuid = None
+    cursor_id = None
     if cursor:
-        cursor_uuid = validate_uuid(cursor, "cursor")
+        cursor_id = validate_id(cursor, "cursor")
 
     return {
         "limit": limit,
-        "cursor": cursor_uuid
+        "cursor": cursor_id
     }
 
 

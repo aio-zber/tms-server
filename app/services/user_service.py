@@ -237,8 +237,7 @@ class UserService:
         Returns:
             UserResponse or None if not found
         """
-        from uuid import UUID
-        user = await self.user_repo.get(UUID(user_id))
+        user = await self.user_repo.get(user_id)  # user_id is already a string
         if not user:
             return None
 
