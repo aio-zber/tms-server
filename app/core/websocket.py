@@ -59,13 +59,13 @@ class ConnectionManager:
             raise
 
         # Track connections: {sid: user_id}
-        self.connections: Dict[str, UUID] = {}
+        self.connections: Dict[str, str] = {}
 
         # Track user sessions: {user_id: set of sids}
-        self.user_sessions: Dict[UUID, Set[str]] = {}
+        self.user_sessions: Dict[str, Set[str]] = {}
 
         # Track conversation rooms: {conversation_id: set of sids}
-        self.conversation_rooms: Dict[UUID, Set[str]] = {}
+        self.conversation_rooms: Dict[str, Set[str]] = {}
 
         # Setup event handlers
         self._setup_handlers()
@@ -469,7 +469,7 @@ class ConnectionManager:
 
         Args:
             conversation_id: Conversation ID
-            message_id: Deleted message UUID
+            message_id: Deleted message ID
         """
         room = f"conversation:{conversation_id}"
         await self.sio.emit('message_deleted', {

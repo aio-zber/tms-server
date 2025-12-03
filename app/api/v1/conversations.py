@@ -3,7 +3,7 @@ Conversation API routes.
 Provides endpoints for creating, retrieving, and managing conversations.
 """
 from typing import Optional
-from uuid import UUID
+# UUID import removed - using str for ID types
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -68,7 +68,7 @@ async def create_conversation(
     from app.repositories.user_repo import UserRepository
     from app.core.tms_client import tms_client
     from sqlalchemy import select
-    from uuid import UUID
+    # UUID import removed - using str for ID types
 
     service = ConversationService(db)
     user = await get_current_user_from_db(current_user, db)
@@ -146,7 +146,7 @@ async def create_conversation(
 )
 async def get_user_conversations(
     limit: int = Query(default=50, ge=1, le=100, description="Number of conversations to return"),
-    cursor: Optional[UUID] = Query(None, description="Cursor for pagination (last conversation ID)"),
+    cursor: Optional[str] = Query(None, description="Cursor for pagination (last conversation ID)"),
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -226,14 +226,14 @@ async def search_conversations(
     description="Retrieve a single conversation with all its details including members."
 )
 async def get_conversation(
-    conversation_id: UUID,
+    conversation_id: str,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Get a single conversation by its ID.
 
-    - **conversation_id**: UUID of the conversation to retrieve
+    - **conversation_id**: ID of the conversation to retrieve
     """
     service = ConversationService(db)
     user = await get_current_user_from_db(current_user, db)
@@ -249,7 +249,7 @@ async def get_conversation(
     description="Update conversation name or avatar. Only admins can update group conversations."
 )
 async def update_conversation(
-    conversation_id: UUID,
+    conversation_id: str,
     conversation_data: ConversationUpdate,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -257,7 +257,7 @@ async def update_conversation(
     """
     Update conversation details.
 
-    - **conversation_id**: UUID of the conversation to update
+    - **conversation_id**: ID of the conversation to update
     - **name**: Updated conversation name
     - **avatar_url**: Updated avatar URL
     """
@@ -282,7 +282,7 @@ async def update_conversation(
     description="Add new members to a group conversation. Only admins can add members."
 )
 async def add_members(
-    conversation_id: UUID,
+    conversation_id: str,
     member_data: ConversationMemberAdd,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -290,7 +290,7 @@ async def add_members(
     """
     Add members to a conversation.
 
-    - **conversation_id**: UUID of the conversation
+    - **conversation_id**: ID of the conversation
     - **user_ids**: List of TMS user IDs to add
     """
     from app.models.user import User
@@ -363,16 +363,16 @@ async def add_members(
     description="Remove a member from a group conversation. Admins can remove others, or users can remove themselves."
 )
 async def remove_member(
-    conversation_id: UUID,
-    member_id: UUID,
+    conversation_id: str,
+    member_id: str,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Remove a member from a conversation.
 
-    - **conversation_id**: UUID of the conversation
-    - **member_id**: UUID of the member to remove
+    - **conversation_id**: ID of the conversation
+    - **member_id**: ID of the member to remove
     """
     service = ConversationService(db)
     user = await get_current_user_from_db(current_user, db)
@@ -393,14 +393,14 @@ async def remove_member(
     description="Remove yourself from a conversation."
 )
 async def leave_conversation(
-    conversation_id: UUID,
+    conversation_id: str,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Leave a conversation.
 
-    - **conversation_id**: UUID of the conversation to leave
+    - **conversation_id**: ID of the conversation to leave
     """
     service = ConversationService(db)
     user = await get_current_user_from_db(current_user, db)
@@ -420,7 +420,7 @@ async def leave_conversation(
     description="Update notification settings for a conversation (mute/unmute)."
 )
 async def update_conversation_settings(
-    conversation_id: UUID,
+    conversation_id: str,
     settings_data: ConversationSettingsUpdate,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -428,7 +428,7 @@ async def update_conversation_settings(
     """
     Update conversation notification settings.
 
-    - **conversation_id**: UUID of the conversation
+    - **conversation_id**: ID of the conversation
     - **is_muted**: Whether to mute notifications
     - **mute_until**: Optional mute expiration datetime
     """
@@ -452,14 +452,14 @@ async def update_conversation_settings(
     description="Update last_read_at timestamp to mark all messages as read."
 )
 async def mark_conversation_read(
-    conversation_id: UUID,
+    conversation_id: str,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Mark conversation as read.
 
-    - **conversation_id**: UUID of the conversation
+    - **conversation_id**: ID of the conversation
     """
     service = ConversationService(db)
     user = await get_current_user_from_db(current_user, db)

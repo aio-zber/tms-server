@@ -2,7 +2,7 @@
 Poll API routes.
 Provides endpoints for creating polls, voting, and managing poll results.
 """
-from uuid import UUID
+# UUID import removed - using str for ID types
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,7 +36,7 @@ async def create_poll(
     """
     Create a new poll.
 
-    - **conversation_id**: UUID of the conversation
+    - **conversation_id**: ID of the conversation
     - **question**: Poll question (1-255 characters)
     - **options**: List of 2-10 poll options
     - **multiple_choice**: Allow multiple answers (default: False)
@@ -106,7 +106,7 @@ async def create_poll(
     description="Cast or update vote on a poll."
 )
 async def vote_on_poll(
-    poll_id: UUID,
+    poll_id: str,
     vote_data: PollVoteCreate,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -114,7 +114,7 @@ async def vote_on_poll(
     """
     Vote on a poll.
 
-    - **poll_id**: UUID of the poll
+    - **poll_id**: ID of the poll
     - **option_ids**: List of option UUID(s) to vote for
 
     For single-choice polls: Replaces existing vote
@@ -201,7 +201,7 @@ async def vote_on_poll(
     description="Close a poll early (only poll creator can close)."
 )
 async def close_poll(
-    poll_id: UUID,
+    poll_id: str,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -210,7 +210,7 @@ async def close_poll(
 
     Only the poll creator can close the poll.
 
-    - **poll_id**: UUID of the poll
+    - **poll_id**: ID of the poll
     """
     service = PollService(db)
 
@@ -284,14 +284,14 @@ async def close_poll(
     description="Get poll details with results."
 )
 async def get_poll(
-    poll_id: UUID,
+    poll_id: str,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Get poll details with vote counts and results.
 
-    - **poll_id**: UUID of the poll
+    - **poll_id**: ID of the poll
     """
     service = PollService(db)
 

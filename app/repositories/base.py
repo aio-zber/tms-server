@@ -3,7 +3,6 @@ Base repository with common CRUD operations.
 All repositories should extend this class for database access.
 """
 from typing import Generic, TypeVar, Type, Optional, List, Any, Dict
-from uuid import UUID
 
 from sqlalchemy import select, update, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,12 +52,12 @@ class BaseRepository(Generic[ModelType]):
         await self.db.refresh(instance)
         return instance
 
-    async def get(self, id: UUID) -> Optional[ModelType]:
+    async def get(self, id: str) -> Optional[ModelType]:
         """
         Get a record by ID.
 
         Args:
-            id: Record UUID
+            id: Record ID (UUID or CUID format)
 
         Returns:
             Model instance or None if not found
@@ -77,14 +76,14 @@ class BaseRepository(Generic[ModelType]):
 
     async def get_many(
         self,
-        ids: List[UUID],
+        ids: List[str],
         order_by: Optional[Any] = None
     ) -> List[ModelType]:
         """
         Get multiple records by IDs.
 
         Args:
-            ids: List of record UUIDs
+            ids: List of record IDs (UUID or CUID format)
             order_by: Optional SQLAlchemy order_by clause
 
         Returns:
@@ -133,12 +132,12 @@ class BaseRepository(Generic[ModelType]):
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
-    async def update(self, id: UUID, **kwargs) -> Optional[ModelType]:
+    async def update(self, id: str, **kwargs) -> Optional[ModelType]:
         """
         Update a record by ID.
 
         Args:
-            id: Record UUID
+            id: Record ID (UUID or CUID format)
             **kwargs: Fields to update
 
         Returns:
@@ -161,12 +160,12 @@ class BaseRepository(Generic[ModelType]):
         await self.db.flush()
         return await self.get(id)
 
-    async def delete(self, id: UUID) -> bool:
+    async def delete(self, id: str) -> bool:
         """
         Delete a record by ID (hard delete).
 
         Args:
-            id: Record UUID
+            id: Record ID (UUID or CUID format)
 
         Returns:
             True if deleted, False if not found
@@ -182,12 +181,12 @@ class BaseRepository(Generic[ModelType]):
         await self.db.flush()
         return result.rowcount > 0
 
-    async def exists(self, id: UUID) -> bool:
+    async def exists(self, id: str) -> bool:
         """
         Check if a record exists.
 
         Args:
-            id: Record UUID
+            id: Record ID (UUID or CUID format)
 
         Returns:
             True if exists, False otherwise

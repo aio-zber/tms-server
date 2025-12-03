@@ -4,7 +4,7 @@ Provides reusable utility functions.
 """
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
-from uuid import UUID
+# UUID import removed - using str for ID types
 import hashlib
 import json
 
@@ -156,7 +156,7 @@ def build_response(
 
 def build_pagination_response(
     data: List[Any],
-    next_cursor: Optional[UUID] = None,
+    next_cursor: Optional[str] = None,
     has_more: bool = False,
     total: Optional[int] = None
 ) -> Dict[str, Any]:

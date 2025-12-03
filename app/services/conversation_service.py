@@ -4,7 +4,7 @@ Handles conversation CRUD, member management, and integrations.
 """
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
-from uuid import UUID
+# UUID import removed - using str for ID types
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,7 +34,7 @@ class ConversationService:
     async def _enrich_conversation_with_user_data(
         self,
         conversation: Conversation,
-        user_id: UUID
+        user_id: ID
     ) -> Dict[str, Any]:
         """
         Enrich conversation with TMS user data and member info.
@@ -175,9 +175,9 @@ class ConversationService:
 
     async def create_conversation(
         self,
-        creator_id: UUID,
+        creator_id: str,
         type: ConversationType,
-        member_ids: List[UUID],
+        member_ids: List[str],
         name: Optional[str] = None,
         avatar_url: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -272,8 +272,8 @@ class ConversationService:
 
     async def get_conversation(
         self,
-        conversation_id: UUID,
-        user_id: UUID
+        conversation_id: str,
+        user_id: ID
     ) -> Dict[str, Any]:
         """
         Get a single conversation by ID.
@@ -307,10 +307,10 @@ class ConversationService:
 
     async def get_user_conversations(
         self,
-        user_id: UUID,
+        user_id: str,
         limit: int = 50,
-        cursor: Optional[UUID] = None
-    ) -> Tuple[List[Dict[str, Any]], Optional[UUID], bool]:
+        cursor: Optional[str] = None
+    ) -> Tuple[List[Dict[str, Any]], Optional[str], bool]:
         """
         Get all conversations for a user with pagination.
 
@@ -339,8 +339,8 @@ class ConversationService:
 
     async def update_conversation(
         self,
-        conversation_id: UUID,
-        user_id: UUID,
+        conversation_id: str,
+        user_id: str,
         name: Optional[str] = None,
         avatar_url: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -455,9 +455,9 @@ class ConversationService:
 
     async def add_members(
         self,
-        conversation_id: UUID,
-        user_id: UUID,
-        member_ids: List[UUID]
+        conversation_id: str,
+        user_id: str,
+        member_ids: List[str]
     ) -> Dict[str, Any]:
         """
         Add members to a conversation.
@@ -587,9 +587,9 @@ class ConversationService:
 
     async def remove_member(
         self,
-        conversation_id: UUID,
-        user_id: UUID,
-        member_id: UUID
+        conversation_id: str,
+        user_id: str,
+        member_id: ID
     ) -> Dict[str, Any]:
         """
         Remove a member from a conversation.
@@ -702,8 +702,8 @@ class ConversationService:
 
     async def leave_conversation(
         self,
-        conversation_id: UUID,
-        user_id: UUID
+        conversation_id: str,
+        user_id: ID
     ) -> Dict[str, Any]:
         """
         Leave a conversation.
@@ -791,8 +791,8 @@ class ConversationService:
 
     async def update_member_settings(
         self,
-        conversation_id: UUID,
-        user_id: UUID,
+        conversation_id: str,
+        user_id: str,
         is_muted: Optional[bool] = None,
         mute_until: Optional[datetime] = None
     ) -> Dict[str, Any]:
@@ -849,8 +849,8 @@ class ConversationService:
 
     async def mark_conversation_read(
         self,
-        conversation_id: UUID,
-        user_id: UUID
+        conversation_id: str,
+        user_id: ID
     ) -> Dict[str, Any]:
         """
         Mark conversation as read (update last_read_at).
@@ -903,7 +903,7 @@ class ConversationService:
 
     async def search_conversations(
         self,
-        user_id: UUID,
+        user_id: str,
         query: str,
         limit: int = 20
     ) -> List[Dict[str, Any]]:

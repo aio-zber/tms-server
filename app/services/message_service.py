@@ -4,7 +4,7 @@ Handles message CRUD, reactions, status updates, and integrations.
 """
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
-from uuid import UUID
+# UUID import removed - using str for ID types
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,15 +46,15 @@ class MessageService:
 
     async def _verify_conversation_membership(
         self,
-        conversation_id: UUID,
-        user_id: UUID
+        conversation_id: str,
+        user_id: str
     ) -> bool:
         """
         Verify user is a member of the conversation.
 
         Args:
-            conversation_id: Conversation UUID
-            user_id: User UUID
+            conversation_id: Conversation ID
+            user_id: User ID
 
         Returns:
             True if user is member
@@ -69,15 +69,15 @@ class MessageService:
 
     async def _check_user_blocked(
         self,
-        sender_id: UUID,
-        recipient_id: UUID
+        sender_id: str,
+        recipient_id: str
     ) -> bool:
         """
         Check if sender is blocked by recipient.
 
         Args:
-            sender_id: Sender user UUID
-            recipient_id: Recipient user UUID
+            sender_id: Sender user ID
+            recipient_id: Recipient user ID
 
         Returns:
             True if blocked
@@ -92,12 +92,12 @@ class MessageService:
         )
         return result.scalar_one_or_none() is not None
 
-    async def _update_conversation_timestamp(self, conversation_id: UUID) -> None:
+    async def _update_conversation_timestamp(self, conversation_id: str) -> None:
         """
         Update conversation's updated_at timestamp.
 
         Args:
-            conversation_id: Conversation UUID
+            conversation_id: Conversation ID
         """
         result = await self.db.execute(
             select(Conversation).where(Conversation.id == conversation_id)
@@ -111,7 +111,7 @@ class MessageService:
     def _compute_message_status(
         self,
         message: Message,
-        current_user_id: Optional[UUID] = None
+        current_user_id: Optional[str] = None
     ) -> str:
         """
         Compute single aggregated status field for message (Telegram/Messenger pattern).
@@ -126,7 +126,7 @@ class MessageService:
 
         Args:
             message: Message instance with loaded statuses
-            current_user_id: Optional current user UUID (for determining sender)
+            current_user_id: Optional current user ID (for determining sender)
 
         Returns:
             Status string: "sent", "delivered", or "read"
@@ -184,14 +184,14 @@ class MessageService:
     async def _enrich_message_with_user_data(
         self,
         message: Message,
-        current_user_id: Optional[UUID] = None
+        current_user_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Enrich message with TMS user data and compute aggregated status.
 
         Args:
             message: Message instance
-            current_user_id: Optional current user UUID for status computation
+            current_user_id: Optional current user ID for status computation
 
         Returns:
             Message dict with enriched user data and computed status field
@@ -367,19 +367,19 @@ class MessageService:
 
     async def send_message(
         self,
-        sender_id: UUID,
-        conversation_id: UUID,
+        sender_id: str,
+        conversation_id: str,
         content: Optional[str],
         message_type: MessageType = MessageType.TEXT,
         metadata_json: Dict[str, Any] = None,
-        reply_to_id: Optional[UUID] = None
+        reply_to_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Send a new message.
 
         Args:
-            sender_id: Sender user UUID
-            conversation_id: Conversation UUID
+            sender_id: Sender user ID
+            conversation_id: Conversation ID
             content: Message content
             message_type: Type of message
             metadata_json: Message metadata
@@ -488,22 +488,20 @@ class MessageService:
         # Enrich with TMS user data (pass sender_id as user_id for status computation)
         enriched_message = await self._enrich_message_with_user_data(message, sender_id)
 
-        # Convert UUIDs and datetimes to strings for JSON serialization
+        # Convert datetimes to strings for JSON serialization
         def convert_to_json_serializable(obj):
-            """Recursively convert UUID and datetime objects to strings for JSON serialization."""
+            """Recursively convert datetime objects to strings for JSON serialization."""
             from datetime import datetime
             if isinstance(obj, dict):
                 return {k: convert_to_json_serializable(v) for k, v in obj.items()}
             elif isinstance(obj, list):
                 return [convert_to_json_serializable(item) for item in obj]
-            elif isinstance(obj, UUID):
-                return str(obj)
             elif isinstance(obj, datetime):
                 return obj.isoformat()
             else:
                 return obj
         
-        # Prepare message for WebSocket broadcast (all UUIDs and datetimes as strings)
+        # Prepare message for WebSocket broadcast (all datetimes as strings)
         broadcast_message = convert_to_json_serializable(enriched_message)
 
         # Broadcast new message via WebSocket
@@ -527,13 +525,13 @@ class MessageService:
 
         return enriched_message
 
-    async def get_message(self, message_id: UUID, user_id: UUID) -> Dict[str, Any]:
+    async def get_message(self, message_id: str, user_id: str) -> Dict[str, Any]:
         """
         Get a single message by ID.
 
         Args:
-            message_id: Message UUID
-            user_id: Requesting user UUID
+            message_id: Message ID
+            user_id: Requesting user ID
 
         Returns:
             Message with enriched data
@@ -563,18 +561,18 @@ class MessageService:
 
     async def get_conversation_messages(
         self,
-        conversation_id: UUID,
-        user_id: UUID,
+        conversation_id: str,
+        user_id: str,
         limit: int = 10,
-        cursor: Optional[UUID] = None
-    ) -> Tuple[List[Dict[str, Any]], Optional[UUID], bool]:
+        cursor: Optional[str] = None
+    ) -> Tuple[List[Dict[str, Any]], Optional[str], bool]:
         """
         Get messages for a conversation with pagination.
         OPTIMIZED: Uses batch fetching to avoid N+1 problem.
 
         Args:
-            conversation_id: Conversation UUID
-            user_id: Requesting user UUID
+            conversation_id: Conversation ID
+            user_id: Requesting user ID
             limit: Number of messages
             cursor: Cursor for pagination
 
@@ -774,16 +772,16 @@ class MessageService:
 
     async def edit_message(
         self,
-        message_id: UUID,
-        user_id: UUID,
+        message_id: str,
+        user_id: str,
         new_content: str
     ) -> Dict[str, Any]:
         """
         Edit a message.
 
         Args:
-            message_id: Message UUID
-            user_id: User UUID (must be sender)
+            message_id: Message ID
+            user_id: User ID (must be sender)
             new_content: New message content
 
         Returns:
@@ -836,15 +834,15 @@ class MessageService:
 
     async def delete_message(
         self,
-        message_id: UUID,
-        user_id: UUID
+        message_id: str,
+        user_id: str
     ) -> Dict[str, Any]:
         """
         Delete a message (soft delete).
 
         Args:
-            message_id: Message UUID
-            user_id: User UUID (must be sender)
+            message_id: Message ID
+            user_id: User ID (must be sender)
 
         Returns:
             Success response with deleted_at timestamp
@@ -906,8 +904,8 @@ class MessageService:
 
     async def add_reaction(
         self,
-        message_id: UUID,
-        user_id: UUID,
+        message_id: str,
+        user_id: str,
         emoji: str
     ) -> Dict[str, Any]:
         """
@@ -917,8 +915,8 @@ class MessageService:
         automatically switch to the new emoji (remove old, add new).
 
         Args:
-            message_id: Message UUID
-            user_id: User UUID
+            message_id: Message ID
+            user_id: User ID
             emoji: Emoji string
 
         Returns:
@@ -985,7 +983,7 @@ class MessageService:
         await self.db.commit()
 
         reaction_data = {
-            # Convert UUIDs to strings for JSON serialization
+            # Convert objects to strings for JSON serialization
             "id": str(reaction.id),
             "message_id": str(reaction.message_id),
             "user_id": str(reaction.user_id),
@@ -1005,16 +1003,16 @@ class MessageService:
 
     async def remove_reaction(
         self,
-        message_id: UUID,
-        user_id: UUID,
+        message_id: str,
+        user_id: str,
         emoji: str
     ) -> Dict[str, Any]:
         """
         Remove a reaction from a message.
 
         Args:
-            message_id: Message UUID
-            user_id: User UUID
+            message_id: Message ID
+            user_id: User ID
             emoji: Emoji string
 
         Returns:
@@ -1056,17 +1054,17 @@ class MessageService:
 
     async def mark_messages_read(
         self,
-        message_ids: List[UUID],
-        user_id: UUID,
-        conversation_id: UUID
+        message_ids: List[str],
+        user_id: str,
+        conversation_id: str
     ) -> Dict[str, Any]:
         """
         Mark multiple messages as read and update last_read_at timestamp.
 
         Args:
-            message_ids: List of message UUIDs
-            user_id: User UUID
-            conversation_id: Conversation UUID
+            message_ids: List of message IDs
+            user_id: User ID
+            conversation_id: Conversation ID
 
         Returns:
             Success response with count
@@ -1213,9 +1211,9 @@ class MessageService:
 
     async def mark_messages_delivered(
         self,
-        conversation_id: UUID,
-        user_id: UUID,
-        message_ids: Optional[List[UUID]] = None
+        conversation_id: str,
+        user_id: str,
+        message_ids: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
         Mark messages as delivered (Telegram/Messenger pattern).
@@ -1224,9 +1222,9 @@ class MessageService:
         Transitions messages from SENT → DELIVERED.
 
         Args:
-            conversation_id: Conversation UUID
-            user_id: User UUID
-            message_ids: Optional list of specific message UUIDs (if None, marks all SENT messages)
+            conversation_id: Conversation ID
+            user_id: User ID
+            message_ids: Optional list of specific message IDs (if None, marks all SENT messages)
 
         Returns:
             Success response with count
@@ -1282,9 +1280,9 @@ class MessageService:
     async def search_messages(
         self,
         query: str,
-        user_id: UUID,
-        conversation_id: Optional[UUID] = None,
-        sender_id: Optional[UUID] = None,
+        user_id: str,
+        conversation_id: Optional[str] = None,
+        sender_id: Optional[str] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
         limit: int = 50
@@ -1294,7 +1292,7 @@ class MessageService:
 
         Args:
             query: Search query
-            user_id: Requesting user UUID
+            user_id: Requesting user ID
             conversation_id: Optional conversation filter
             sender_id: Optional sender filter
             start_date: Optional start date
@@ -1337,15 +1335,15 @@ class MessageService:
 
     async def clear_conversation(
         self,
-        conversation_id: UUID,
-        user_id: UUID
+        conversation_id: str,
+        user_id: str
     ) -> int:
         """
         Clear all messages in a conversation (soft delete).
 
         Args:
-            conversation_id: Conversation UUID
-            user_id: Requesting user UUID
+            conversation_id: Conversation ID
+            user_id: Requesting user ID
 
         Returns:
             Number of messages deleted

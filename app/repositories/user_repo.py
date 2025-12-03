@@ -4,7 +4,7 @@ Handles user CRUD, syncing from TMS, and search operations.
 """
 from typing import Optional, List, Dict, Any
 from datetime import datetime
-from uuid import UUID
+# UUID import removed - using str for ID types
 
 from sqlalchemy import select, or_, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession

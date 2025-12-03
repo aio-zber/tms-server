@@ -12,7 +12,7 @@ Security:
 """
 from datetime import datetime
 from typing import Dict, List, Any
-from uuid import UUID
+# UUID import removed - using str for ID types
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,7 +38,7 @@ class SystemMessageService:
     @staticmethod
     async def create_member_added_message(
         db: AsyncSession,
-        conversation_id: UUID,
+        conversation_id: str,
         actor: User,
         added_members: List[Dict[str, Any]]
     ) -> Message:
@@ -88,7 +88,7 @@ class SystemMessageService:
     @staticmethod
     async def create_member_removed_message(
         db: AsyncSession,
-        conversation_id: UUID,
+        conversation_id: str,
         actor: User,
         removed_user: User
     ) -> Message:
@@ -130,7 +130,7 @@ class SystemMessageService:
     @staticmethod
     async def create_member_left_message(
         db: AsyncSession,
-        conversation_id: UUID,
+        conversation_id: str,
         user: User
     ) -> Message:
         """
@@ -167,7 +167,7 @@ class SystemMessageService:
     @staticmethod
     async def create_conversation_updated_message(
         db: AsyncSession,
-        conversation_id: UUID,
+        conversation_id: str,
         actor: User,
         updates: Dict[str, Any]
     ) -> Message:
@@ -213,7 +213,7 @@ class SystemMessageService:
     @staticmethod
     async def create_message_deleted_message(
         db: AsyncSession,
-        conversation_id: UUID,
+        conversation_id: str,
         actor: User
     ) -> Message:
         """
@@ -250,8 +250,8 @@ class SystemMessageService:
     @staticmethod
     async def _create_system_message(
         db: AsyncSession,
-        conversation_id: UUID,
-        sender_id: UUID,
+        conversation_id: str,
+        sender_id: str,
         content: str,
         metadata: Dict[str, Any]
     ) -> Message:

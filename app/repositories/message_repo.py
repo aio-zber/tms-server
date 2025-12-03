@@ -4,7 +4,7 @@ Handles CRUD and query operations for messages, statuses, and reactions.
 """
 from datetime import datetime
 from typing import List, Optional, Tuple
-from uuid import UUID
+# UUID import removed - using str for ID types
 
 from sqlalchemy import select, and_, or_, func, desc
 from sqlalchemy.orm import selectinload
@@ -21,7 +21,7 @@ class MessageRepository(BaseRepository[Message]):
         """Initialize message repository."""
         super().__init__(Message, db)
 
-    async def get_with_relations(self, message_id: UUID) -> Optional[Message]:
+    async def get_with_relations(self, message_id: str) -> Optional[Message]:
         """
         Get message with all related data (sender, reactions, statuses).
 
@@ -48,11 +48,11 @@ class MessageRepository(BaseRepository[Message]):
 
     async def get_conversation_messages(
         self,
-        conversation_id: UUID,
+        conversation_id: str,
         limit: int = 10,
-        cursor: Optional[UUID] = None,
+        cursor: Optional[str] = None,
         include_deleted: bool = False
-    ) -> Tuple[List[Message], Optional[UUID], bool]:
+    ) -> Tuple[List[Message], Optional[str], bool]:
         """
         Get messages for a conversation with cursor-based pagination.
 
@@ -147,9 +147,9 @@ class MessageRepository(BaseRepository[Message]):
     async def search_messages(
         self,
         query: str,
-        user_id: UUID,
-        conversation_id: Optional[UUID] = None,
-        sender_id: Optional[UUID] = None,
+        user_id: str,
+        conversation_id: Optional[str] = None,
+        sender_id: Optional[str] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
         limit: int = 50
@@ -196,8 +196,8 @@ class MessageRepository(BaseRepository[Message]):
     async def _search_messages_fulltext(
         self,
         query: str,
-        conversation_id: Optional[UUID] = None,
-        sender_id: Optional[UUID] = None,
+        conversation_id: Optional[str] = None,
+        sender_id: Optional[str] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
         limit: int = 50
@@ -310,9 +310,9 @@ class MessageRepository(BaseRepository[Message]):
     async def _search_messages_simple(
         self,
         query: str,
-        user_id: UUID,
-        conversation_id: Optional[UUID] = None,
-        sender_id: Optional[UUID] = None,
+        user_id: str,
+        conversation_id: Optional[str] = None,
+        sender_id: Optional[str] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
         limit: int = 50
@@ -388,7 +388,7 @@ class MessageRepository(BaseRepository[Message]):
 
         return list(messages)
 
-    async def soft_delete(self, message_id: UUID) -> Optional[Message]:
+    async def soft_delete(self, message_id: str) -> Optional[Message]:
         """
         Soft delete a message (set deleted_at timestamp).
 
@@ -402,8 +402,8 @@ class MessageRepository(BaseRepository[Message]):
 
     async def get_unread_count(
         self,
-        conversation_id: UUID,
-        user_id: UUID
+        conversation_id: str,
+        user_id: str
     ) -> int:
         """
         Get count of unread messages in a conversation for a user.
@@ -481,8 +481,8 @@ class MessageStatusRepository(BaseRepository[MessageStatus]):
 
     async def upsert_status(
         self,
-        message_id: UUID,
-        user_id: UUID,
+        message_id: str,
+        user_id: str,
         status: MessageStatusType
     ) -> MessageStatus:
         """
@@ -547,8 +547,8 @@ class MessageStatusRepository(BaseRepository[MessageStatus]):
 
     async def mark_messages_as_delivered(
         self,
-        message_ids: List[UUID],
-        user_id: UUID
+        message_ids: List[str],
+        user_id: str
     ) -> int:
         """
         Mark multiple messages as delivered for a user.
@@ -568,8 +568,8 @@ class MessageStatusRepository(BaseRepository[MessageStatus]):
 
     async def mark_messages_as_read(
         self,
-        message_ids: List[UUID],
-        user_id: UUID
+        message_ids: List[str],
+        user_id: str
     ) -> int:
         """
         Mark multiple messages as read for a user.
@@ -608,9 +608,9 @@ class MessageStatusRepository(BaseRepository[MessageStatus]):
 
     async def mark_messages_as_delivered(
         self,
-        conversation_id: UUID,
-        user_id: UUID,
-        message_ids: Optional[List[UUID]] = None
+        conversation_id: str,
+        user_id: str,
+        message_ids: Optional[List[str]] = None
     ) -> int:
         """
         Mark messages as delivered (SENT → DELIVERED) for a user in a conversation.
@@ -702,8 +702,8 @@ class MessageReactionRepository(BaseRepository[MessageReaction]):
 
     async def add_reaction(
         self,
-        message_id: UUID,
-        user_id: UUID,
+        message_id: str,
+        user_id: str,
         emoji: str
     ) -> Optional[MessageReaction]:
         """
@@ -741,8 +741,8 @@ class MessageReactionRepository(BaseRepository[MessageReaction]):
 
     async def remove_reaction(
         self,
-        message_id: UUID,
-        user_id: UUID,
+        message_id: str,
+        user_id: str,
         emoji: str
     ) -> bool:
         """
@@ -773,7 +773,7 @@ class MessageReactionRepository(BaseRepository[MessageReaction]):
             return True
         return False
 
-    async def get_message_reactions(self, message_id: UUID) -> List[MessageReaction]:
+    async def get_message_reactions(self, message_id: str) -> List[MessageReaction]:
         """
         Get all reactions for a message.
 
