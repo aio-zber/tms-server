@@ -4,7 +4,7 @@ Provides reusable validation functions.
 """
 import re
 from typing import Optional
-from uuid import UUID
+# UUID import removed - using str for ID types
 
 from fastapi import HTTPException, status
 

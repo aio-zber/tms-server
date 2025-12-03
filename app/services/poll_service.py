@@ -4,7 +4,7 @@ Handles poll creation, voting, closing, and results retrieval.
 """
 from datetime import datetime
 from typing import List, Dict, Any, Optional
-from uuid import UUID
+# UUID import removed - using str for ID types
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,8 +30,8 @@ class PollService:
 
     async def _verify_conversation_membership(
         self,
-        conversation_id: UUID,
-        user_id: UUID
+        conversation_id: str,
+        user_id: ID
     ) -> bool:
         """
         Verify user is a member of the conversation.
@@ -53,8 +53,8 @@ class PollService:
 
     async def create_poll(
         self,
-        user_id: UUID,
-        conversation_id: UUID,
+        user_id: str,
+        conversation_id: str,
         question: str,
         options: List[Dict[str, Any]],
         multiple_choice: bool = False,
@@ -139,9 +139,9 @@ class PollService:
 
     async def vote_on_poll(
         self,
-        poll_id: UUID,
-        user_id: UUID,
-        option_ids: List[UUID]
+        poll_id: str,
+        user_id: str,
+        option_ids: List[str]
     ) -> Dict[str, Any]:
         """
         Cast or update vote(s) on a poll.
@@ -294,8 +294,8 @@ class PollService:
 
     async def close_poll(
         self,
-        poll_id: UUID,
-        user_id: UUID
+        poll_id: str,
+        user_id: ID
     ) -> Dict[str, Any]:
         """
         Close a poll (only creator can close).
@@ -342,8 +342,8 @@ class PollService:
 
     async def get_poll(
         self,
-        poll_id: UUID,
-        user_id: UUID
+        poll_id: str,
+        user_id: ID
     ) -> Dict[str, Any]:
         """
         Get poll details with results.
@@ -392,7 +392,7 @@ class PollService:
     async def _build_poll_response(
         self,
         poll: Poll,
-        user_id: UUID
+        user_id: ID
     ) -> Dict[str, Any]:
         """
         Build poll response dict with vote counts and user votes.

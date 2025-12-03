@@ -105,7 +105,7 @@ async def get_user_by_id(
 
     # Try local UUID first
     try:
-        from uuid import UUID
+        # UUID import removed - using str for ID types
         user = await user_service.get_user_by_id(user_id)
         if user:
             return user

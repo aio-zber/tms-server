@@ -4,7 +4,7 @@ Handles validation for poll-related API endpoints.
 """
 from datetime import datetime
 from typing import Optional, List
-from uuid import UUID
+# UUID import removed - using str for ID types
 
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
@@ -46,7 +46,7 @@ class PollOptionCreate(BaseModel):
 class PollCreate(BaseModel):
     """Schema for creating a poll."""
 
-    conversation_id: UUID = Field(..., description="Conversation ID where poll will be sent")
+    conversation_id: str = Field(..., description="Conversation ID where poll will be sent")
     question: str = Field(..., min_length=1, max_length=255, description="Poll question")
     options: List[PollOptionCreate] = Field(
         ...,
@@ -107,7 +107,7 @@ class PollCreate(BaseModel):
 class PollVoteCreate(BaseModel):
     """Schema for voting on a poll."""
 
-    option_ids: List[UUID] = Field(
+    option_ids: List[str] = Field(
         ...,
         min_length=1,
         description="Option ID(s) to vote for"
@@ -115,7 +115,7 @@ class PollVoteCreate(BaseModel):
 
     @field_validator("option_ids")
     @classmethod
-    def validate_option_ids(cls, v: List[UUID]) -> List[UUID]:
+    def validate_option_ids(cls, v: List[str]) -> List[str]:
         """Ensure no duplicate option IDs."""
         if len(v) != len(set(v)):
             raise ValueError("Cannot vote for the same option multiple times")
@@ -137,12 +137,12 @@ class PollVoteCreate(BaseModel):
 class PollOptionResponse(BaseModel):
     """Schema for poll option response with vote data."""
 
-    id: UUID
-    poll_id: UUID = Field(serialization_alias="pollId")
+    id: str
+    poll_id: str = Field(serialization_alias="pollId")
     option_text: str = Field(serialization_alias="optionText")
     position: int
     vote_count: int = Field(serialization_alias="voteCount")
-    voters: List[UUID] = Field(default_factory=list, description="User IDs who voted for this option")
+    voters: List[str] = Field(default_factory=list, description="User IDs who voted for this option")
 
     model_config = ConfigDict(
         from_attributes=True,
@@ -163,8 +163,8 @@ class PollOptionResponse(BaseModel):
 class PollResponse(BaseModel):
     """Schema for poll response with full details and results."""
 
-    id: UUID
-    message_id: UUID = Field(serialization_alias="messageId")
+    id: str
+    message_id: str = Field(serialization_alias="messageId")
     question: str
     multiple_choice: bool = Field(serialization_alias="multipleChoice")
     is_closed: bool = Field(default=False, serialization_alias="isClosed")
@@ -174,7 +174,7 @@ class PollResponse(BaseModel):
     # Poll results
     options: List[PollOptionResponse]
     total_votes: int = Field(serialization_alias="totalVotes")
-    user_votes: List[UUID] = Field(
+    user_votes: List[str] = Field(
         default_factory=list,
         serialization_alias="userVotes",
         description="Option IDs the current user voted for"

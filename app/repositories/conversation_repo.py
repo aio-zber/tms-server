@@ -4,7 +4,7 @@ Handles conversations, members, and related queries.
 """
 from datetime import datetime
 from typing import Optional, List, Tuple, Dict, Any
-from uuid import UUID
+# UUID import removed - using str for ID types
 
 from sqlalchemy import select, func, and_, or_, desc, delete, literal, case, literal_column
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,7 +23,7 @@ class ConversationRepository(BaseRepository[Conversation]):
         super().__init__(Conversation, db)
 
     async def get_with_relations(
-        self, conversation_id: UUID, include_members: bool = True
+        self, conversation_id: str, include_members: bool = True
     ) -> Optional[Conversation]:
         """
         Get conversation with related data loaded.
@@ -48,10 +48,10 @@ class ConversationRepository(BaseRepository[Conversation]):
 
     async def get_user_conversations(
         self,
-        user_id: UUID,
+        user_id: str,
         limit: int = 50,
-        cursor: Optional[UUID] = None
-    ) -> Tuple[List[Conversation], Optional[UUID], bool]:
+        cursor: Optional[str] = None
+    ) -> Tuple[List[Conversation], Optional[str], bool]:
         """
         Get conversations for a user with cursor-based pagination.
 
@@ -100,8 +100,8 @@ class ConversationRepository(BaseRepository[Conversation]):
     async def create_with_members(
         self,
         type: ConversationType,
-        creator_id: UUID,
-        member_ids: List[UUID],
+        creator_id: str,
+        member_ids: List[str],
         name: Optional[str] = None,
         avatar_url: Optional[str] = None
     ) -> Conversation:
@@ -159,7 +159,7 @@ class ConversationRepository(BaseRepository[Conversation]):
         return await self.get_with_relations(conversation.id)
 
     async def find_dm_conversation(
-        self, user1_id: UUID, user2_id: UUID
+        self, user1_id: str, user2_id: str
     ) -> Optional[Conversation]:
         """
         Find existing DM conversation between two users.
@@ -203,7 +203,7 @@ class ConversationRepository(BaseRepository[Conversation]):
 
     async def update_conversation(
         self,
-        conversation_id: UUID,
+        conversation_id: str,
         name: Optional[str] = None,
         avatar_url: Optional[str] = None
     ) -> Optional[Conversation]:
@@ -230,7 +230,7 @@ class ConversationRepository(BaseRepository[Conversation]):
 
         return await self.get_with_relations(conversation_id)
 
-    async def get_last_message(self, conversation_id: UUID) -> Optional[Message]:
+    async def get_last_message(self, conversation_id: str) -> Optional[Message]:
         """
         Get the last message in a conversation.
 
@@ -257,7 +257,7 @@ class ConversationRepository(BaseRepository[Conversation]):
 
     async def search_conversations(
         self,
-        user_id: UUID,
+        user_id: str,
         query: str,
         limit: int = 20
     ) -> List[Conversation]:
@@ -420,7 +420,7 @@ class ConversationMemberRepository:
         self.db = db
 
     async def get_member(
-        self, conversation_id: UUID, user_id: UUID
+        self, conversation_id: str, user_id: str
     ) -> Optional[ConversationMember]:
         """
         Get conversation member record.
@@ -444,7 +444,7 @@ class ConversationMemberRepository:
         )
         return result.scalar_one_or_none()
 
-    async def is_member(self, conversation_id: UUID, user_id: UUID) -> bool:
+    async def is_member(self, conversation_id: str, user_id: str) -> bool:
         """
         Check if user is a member of conversation.
 
@@ -467,7 +467,7 @@ class ConversationMemberRepository:
         )
         return result.scalar() > 0
 
-    async def is_admin(self, conversation_id: UUID, user_id: UUID) -> bool:
+    async def is_admin(self, conversation_id: str, user_id: str) -> bool:
         """
         Check if user is an admin of conversation.
 
@@ -492,7 +492,7 @@ class ConversationMemberRepository:
         return result.scalar() > 0
 
     async def get_members(
-        self, conversation_id: UUID
+        self, conversation_id: str
     ) -> List[ConversationMember]:
         """
         Get all members of a conversation.
@@ -510,7 +510,7 @@ class ConversationMemberRepository:
         )
         return list(result.scalars().all())
 
-    async def get_member_count(self, conversation_id: UUID) -> int:
+    async def get_member_count(self, conversation_id: str) -> int:
         """
         Get total member count for conversation.
 
@@ -528,7 +528,7 @@ class ConversationMemberRepository:
         return result.scalar()
 
     async def add_members(
-        self, conversation_id: UUID, user_ids: List[UUID]
+        self, conversation_id: str, user_ids: List[str]
     ) -> int:
         """
         Add multiple members to conversation.
@@ -559,7 +559,7 @@ class ConversationMemberRepository:
         return added_count
 
     async def remove_member(
-        self, conversation_id: UUID, user_id: UUID
+        self, conversation_id: str, user_id: str
     ) -> bool:
         """
         Remove member from conversation.
@@ -584,7 +584,7 @@ class ConversationMemberRepository:
         return result.rowcount > 0
 
     async def update_role(
-        self, conversation_id: UUID, user_id: UUID, role: ConversationRole
+        self, conversation_id: str, user_id: str, role: ConversationRole
     ) -> Optional[ConversationMember]:
         """
         Update member role.
@@ -607,7 +607,7 @@ class ConversationMemberRepository:
         return member
 
     async def update_last_read(
-        self, conversation_id: UUID, user_id: UUID
+        self, conversation_id: str, user_id: str
     ) -> Optional[ConversationMember]:
         """
         Update last_read_at timestamp.
@@ -630,8 +630,8 @@ class ConversationMemberRepository:
 
     async def update_mute_settings(
         self,
-        conversation_id: UUID,
-        user_id: UUID,
+        conversation_id: str,
+        user_id: str,
         is_muted: bool,
         mute_until: Optional[datetime] = None
     ) -> Optional[ConversationMember]:
@@ -658,7 +658,7 @@ class ConversationMemberRepository:
         return member
 
     async def get_unread_count(
-        self, conversation_id: UUID, user_id: UUID
+        self, conversation_id: str, user_id: str
     ) -> int:
         """
         Get unread message count for user in conversation.

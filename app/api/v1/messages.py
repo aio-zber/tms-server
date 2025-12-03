@@ -3,7 +3,7 @@ Message API routes.
 Provides endpoints for sending, retrieving, editing, and managing messages.
 """
 from typing import Optional
-from uuid import UUID
+# UUID import removed - using str for ID types
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,7 +47,7 @@ async def send_message(
     """
     Send a new message to a conversation.
 
-    - **conversation_id**: UUID of the conversation
+    - **conversation_id**: ID of the conversation
     - **content**: Message text content (required for text messages)
     - **type**: Message type (text, image, file, voice, poll, call)
     - **metadata_json**: Additional metadata (URLs, dimensions, etc.)
@@ -101,14 +101,14 @@ async def send_message(
     description="Retrieve a single message with all its details including reactions and status."
 )
 async def get_message(
-    message_id: UUID,
+    message_id: str,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Get a single message by its ID.
 
-    - **message_id**: UUID of the message to retrieve
+    - **message_id**: ID of the message to retrieve
     """
     service = MessageService(db)
 
@@ -138,7 +138,7 @@ async def get_message(
     description="Edit the content of a message. Only the sender can edit their own messages."
 )
 async def edit_message(
-    message_id: UUID,
+    message_id: str,
     message_data: MessageUpdate,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -146,7 +146,7 @@ async def edit_message(
     """
     Edit a message's content.
 
-    - **message_id**: UUID of the message to edit
+    - **message_id**: ID of the message to edit
     - **content**: New message content
     """
     try:
@@ -197,14 +197,14 @@ async def edit_message(
     description="Soft delete a message. Only the sender can delete their own messages."
 )
 async def delete_message(
-    message_id: UUID,
+    message_id: str,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Delete a message (soft delete).
 
-    - **message_id**: UUID of the message to delete
+    - **message_id**: ID of the message to delete
     """
     service = MessageService(db)
 
@@ -237,7 +237,7 @@ async def delete_message(
 @limiter.limit("60/minute")  # Max 60 reactions per minute
 async def add_reaction(
     request: Request,
-    message_id: UUID,
+    message_id: str,
     reaction_data: MessageReactionCreate,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -245,7 +245,7 @@ async def add_reaction(
     """
     Add a reaction to a message.
 
-    - **message_id**: UUID of the message
+    - **message_id**: ID of the message
     - **emoji**: Emoji to react with
     """
     try:
@@ -296,7 +296,7 @@ async def add_reaction(
     description="Remove an emoji reaction from a message."
 )
 async def remove_reaction(
-    message_id: UUID,
+    message_id: str,
     emoji: str,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -304,7 +304,7 @@ async def remove_reaction(
     """
     Remove a reaction from a message.
 
-    - **message_id**: UUID of the message
+    - **message_id**: ID of the message
     - **emoji**: Emoji to remove
     """
     try:
@@ -355,16 +355,16 @@ async def remove_reaction(
     description="Get paginated messages for a conversation with cursor-based pagination."
 )
 async def get_conversation_messages(
-    conversation_id: UUID,
+    conversation_id: str,
     limit: int = Query(default=10, ge=1, le=100, description="Number of messages to return"),
-    cursor: Optional[UUID] = Query(None, description="Cursor for pagination (last message ID)"),
+    cursor: Optional[str] = Query(None, description="Cursor for pagination (last message ID)"),
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Get messages for a conversation with pagination.
 
-    - **conversation_id**: UUID of the conversation
+    - **conversation_id**: ID of the conversation
     - **limit**: Number of messages (max 100)
     - **cursor**: Last message ID for pagination
     """
@@ -479,7 +479,7 @@ async def mark_messages_read(
     Mark multiple messages as read.
 
     - **message_ids**: List of message UUIDs to mark as read
-    - **conversation_id**: UUID of the conversation
+    - **conversation_id**: ID of the conversation
     """
     import logging
     import traceback
@@ -581,7 +581,7 @@ async def mark_messages_delivered(
     - Marks all SENT messages as DELIVERED
     - Does not affect READ messages
 
-    - **conversation_id**: UUID of the conversation
+    - **conversation_id**: ID of the conversation
     - **message_ids**: Optional list of specific message UUIDs (if empty, marks all SENT messages)
     """
     service = MessageService(db)
@@ -617,7 +617,7 @@ async def mark_messages_delivered(
     description="Get the number of unread messages in a specific conversation."
 )
 async def get_conversation_unread_count(
-    conversation_id: UUID,
+    conversation_id: str,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -626,7 +626,7 @@ async def get_conversation_unread_count(
 
     Uses last_read_at timestamp for accurate counting (Telegram/Messenger pattern).
 
-    - **conversation_id**: UUID of the conversation
+    - **conversation_id**: ID of the conversation
     """
     service = MessageService(db)
 
@@ -819,14 +819,14 @@ async def search_messages(
     description="Soft delete all messages in a conversation for the current user."
 )
 async def clear_conversation(
-    conversation_id: UUID,
+    conversation_id: str,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Clear all messages in a conversation (soft delete).
 
-    - **conversation_id**: UUID of the conversation
+    - **conversation_id**: ID of the conversation
     """
     service = MessageService(db)
 

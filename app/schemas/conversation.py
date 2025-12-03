@@ -4,7 +4,7 @@ Handles validation for conversation-related API endpoints.
 """
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from uuid import UUID
+# UUID import removed - using str for ID types
 
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
@@ -151,7 +151,7 @@ class ConversationSettingsUpdate(BaseModel):
 class ConversationMemberResponse(BaseModel):
     """Schema for conversation member response."""
 
-    user_id: UUID = Field(serialization_alias="userId")
+    user_id: str = Field(serialization_alias="userId")
     role: ConversationRole
     joined_at: datetime = Field(serialization_alias="joinedAt")
     last_read_at: Optional[datetime] = Field(None, serialization_alias="lastReadAt")
@@ -171,11 +171,11 @@ class ConversationMemberResponse(BaseModel):
 class ConversationResponse(BaseModel):
     """Schema for conversation response with full details."""
 
-    id: UUID
+    id: str
     type: ConversationType
     name: Optional[str]
     avatar_url: Optional[str] = Field(None, serialization_alias="avatarUrl")
-    created_by: Optional[UUID] = Field(None, serialization_alias="createdBy")
+    created_by: Optional[str] = Field(None, serialization_alias="createdBy")
     created_at: datetime = Field(serialization_alias="createdAt")
     updated_at: Optional[datetime] = Field(None, serialization_alias="updatedAt")
 

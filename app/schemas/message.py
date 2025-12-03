@@ -4,7 +4,7 @@ Handles validation for message-related API endpoints.
 """
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from uuid import UUID
+# UUID import removed - using str for ID types
 
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
@@ -24,11 +24,11 @@ def to_camel(string: str) -> str:
 class MessageCreate(BaseModel):
     """Schema for creating a new message."""
 
-    conversation_id: UUID = Field(..., description="Conversation ID")
+    conversation_id: str = Field(..., description="Conversation ID")
     content: Optional[str] = Field(None, max_length=10000, description="Message text content")
     type: MessageType = Field(default=MessageType.TEXT, description="Message type")
     metadata_json: Dict[str, Any] = Field(default_factory=dict, description="Message metadata")
-    reply_to_id: Optional[UUID] = Field(None, description="ID of message being replied to")
+    reply_to_id: Optional[str] = Field(None, description="ID of message being replied to")
 
     @field_validator("content")
     @classmethod
@@ -101,8 +101,8 @@ class MessageReactionCreate(BaseModel):
 class MessageMarkReadRequest(BaseModel):
     """Schema for marking messages as read."""
 
-    message_ids: List[UUID] = Field(..., min_items=1, max_items=100, description="List of message IDs to mark as read")
-    conversation_id: UUID = Field(..., description="Conversation ID")
+    message_ids: List[str] = Field(..., min_items=1, max_items=100, description="List of message IDs to mark as read")
+    conversation_id: str = Field(..., description="Conversation ID")
 
     class Config:
         json_schema_extra = {
@@ -117,8 +117,8 @@ class MessageSearchRequest(BaseModel):
     """Schema for searching messages."""
 
     query: str = Field(..., min_length=1, max_length=200, description="Search query")
-    conversation_id: Optional[UUID] = Field(None, description="Filter by conversation")
-    sender_id: Optional[UUID] = Field(None, description="Filter by sender")
+    conversation_id: Optional[str] = Field(None, description="Filter by conversation")
+    sender_id: Optional[str] = Field(None, description="Filter by sender")
     message_type: Optional[MessageType] = Field(None, description="Filter by message type")
     start_date: Optional[datetime] = Field(None, description="Filter messages after this date")
     end_date: Optional[datetime] = Field(None, description="Filter messages before this date")
@@ -141,9 +141,9 @@ class MessageSearchRequest(BaseModel):
 class MessageReactionResponse(BaseModel):
     """Schema for message reaction response."""
 
-    id: UUID
-    message_id: UUID = Field(serialization_alias="messageId")
-    user_id: UUID = Field(serialization_alias="userId")
+    id: str
+    message_id: str = Field(serialization_alias="messageId")
+    user_id: str = Field(serialization_alias="userId")
     emoji: str
     created_at: datetime = Field(serialization_alias="createdAt")
 
@@ -153,8 +153,8 @@ class MessageReactionResponse(BaseModel):
 class MessageStatusResponse(BaseModel):
     """Schema for message status response."""
 
-    message_id: UUID = Field(serialization_alias="messageId")
-    user_id: UUID = Field(serialization_alias="userId")
+    message_id: str = Field(serialization_alias="messageId")
+    user_id: str = Field(serialization_alias="userId")
     status: MessageStatusType
     timestamp: datetime
 
@@ -164,7 +164,7 @@ class MessageStatusResponse(BaseModel):
 class UserBasicInfo(BaseModel):
     """Basic user information for message responses."""
 
-    id: UUID
+    id: str
     tms_user_id: str = Field(serialization_alias="tmsUserId")
     # Additional user fields will be fetched from TMS and merged
 
@@ -174,13 +174,13 @@ class UserBasicInfo(BaseModel):
 class MessageResponse(BaseModel):
     """Schema for message response with full details."""
 
-    id: UUID
-    conversation_id: UUID = Field(serialization_alias="conversationId")
-    sender_id: UUID = Field(serialization_alias="senderId")
+    id: str
+    conversation_id: str = Field(serialization_alias="conversationId")
+    sender_id: str = Field(serialization_alias="senderId")
     content: Optional[str]
     type: MessageType
     metadata_json: Dict[str, Any] = Field(default_factory=dict, serialization_alias="metadataJson")
-    reply_to_id: Optional[UUID] = Field(None, serialization_alias="replyToId")
+    reply_to_id: Optional[str] = Field(None, serialization_alias="replyToId")
     is_edited: bool = Field(serialization_alias="isEdited")
     created_at: datetime = Field(serialization_alias="createdAt")
     updated_at: Optional[datetime] = Field(None, serialization_alias="updatedAt")
