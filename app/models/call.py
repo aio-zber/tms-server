@@ -6,9 +6,8 @@ Tracks voice and video calls, including participants and call history.
 import enum
 from datetime import datetime
 from typing import TYPE_CHECKING, List
-from uuid import UUID
 
-from sqlalchemy import ForeignKey, Index, Enum as SQLEnum, func
+from sqlalchemy import ForeignKey, Index, String, Enum as SQLEnum, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, UUIDMixin
@@ -42,14 +41,16 @@ class Call(Base, UUIDMixin):
     __tablename__ = "calls"
 
     # References
-    conversation_id: Mapped[UUID] = mapped_column(
+    conversation_id: Mapped[str] = mapped_column(
+        String(255),
         ForeignKey("conversations.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         doc="Conversation where the call took place"
     )
 
-    created_by: Mapped[UUID] = mapped_column(
+    created_by: Mapped[str] = mapped_column(
+        String(255),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -110,13 +111,15 @@ class CallParticipant(Base):
     __tablename__ = "call_participants"
 
     # Composite primary key
-    call_id: Mapped[UUID] = mapped_column(
+    call_id: Mapped[str] = mapped_column(
+        String(255),
         ForeignKey("calls.id", ondelete="CASCADE"),
         primary_key=True,
         doc="Call ID"
     )
 
-    user_id: Mapped[UUID] = mapped_column(
+    user_id: Mapped[str] = mapped_column(
+        String(255),
         ForeignKey("users.id", ondelete="CASCADE"),
         primary_key=True,
         doc="User ID"

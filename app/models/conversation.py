@@ -6,7 +6,6 @@ Handles both direct messages (DM) and group chats.
 import enum
 from datetime import datetime
 from typing import TYPE_CHECKING, List
-from uuid import UUID
 
 from sqlalchemy import CheckConstraint, ForeignKey, Index, String, Enum as SQLEnum, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -64,7 +63,8 @@ class Conversation(Base, UUIDMixin, TimestampMixin):
     )
 
     # Creator reference
-    created_by: Mapped[UUID | None] = mapped_column(
+    created_by: Mapped[str | None] = mapped_column(
+        String(255),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
         doc="User who created the conversation"
@@ -111,13 +111,15 @@ class ConversationMember(Base):
     __tablename__ = "conversation_members"
 
     # Composite primary key
-    conversation_id: Mapped[UUID] = mapped_column(
+    conversation_id: Mapped[str] = mapped_column(
+        String(255),
         ForeignKey("conversations.id", ondelete="CASCADE"),
         primary_key=True,
         doc="Conversation ID"
     )
 
-    user_id: Mapped[UUID] = mapped_column(
+    user_id: Mapped[str] = mapped_column(
+        String(255),
         ForeignKey("users.id", ondelete="CASCADE"),
         primary_key=True,
         doc="User ID"

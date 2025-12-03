@@ -5,7 +5,6 @@ Handles polls within messages, including voting and results.
 """
 from datetime import datetime
 from typing import TYPE_CHECKING, List
-from uuid import UUID
 
 from sqlalchemy import ForeignKey, Index, String, Text, UniqueConstraint, Integer, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -27,7 +26,8 @@ class Poll(Base, UUIDMixin):
     __tablename__ = "polls"
 
     # Reference to message (one-to-one)
-    message_id: Mapped[UUID] = mapped_column(
+    message_id: Mapped[str] = mapped_column(
+        String(255),
         ForeignKey("messages.id", ondelete="CASCADE"),
         unique=True,
         nullable=False,
@@ -90,7 +90,8 @@ class PollOption(Base, UUIDMixin):
     __tablename__ = "poll_options"
 
     # Reference to poll
-    poll_id: Mapped[UUID] = mapped_column(
+    poll_id: Mapped[str] = mapped_column(
+        String(255),
         ForeignKey("polls.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -133,21 +134,24 @@ class PollVote(Base, UUIDMixin):
     __tablename__ = "poll_votes"
 
     # References
-    poll_id: Mapped[UUID] = mapped_column(
+    poll_id: Mapped[str] = mapped_column(
+        String(255),
         ForeignKey("polls.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         doc="Poll ID"
     )
 
-    option_id: Mapped[UUID] = mapped_column(
+    option_id: Mapped[str] = mapped_column(
+        String(255),
         ForeignKey("poll_options.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         doc="Poll option ID"
     )
 
-    user_id: Mapped[UUID] = mapped_column(
+    user_id: Mapped[str] = mapped_column(
+        String(255),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
