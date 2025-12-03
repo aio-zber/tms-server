@@ -31,7 +31,7 @@ class PollService:
     async def _verify_conversation_membership(
         self,
         conversation_id: str,
-        user_id: ID
+        user_id: str
     ) -> bool:
         """
         Verify user is a member of the conversation.
@@ -295,7 +295,7 @@ class PollService:
     async def close_poll(
         self,
         poll_id: str,
-        user_id: ID
+        user_id: str
     ) -> Dict[str, Any]:
         """
         Close a poll (only creator can close).
@@ -343,7 +343,7 @@ class PollService:
     async def get_poll(
         self,
         poll_id: str,
-        user_id: ID
+        user_id: str
     ) -> Dict[str, Any]:
         """
         Get poll details with results.
@@ -392,7 +392,7 @@ class PollService:
     async def _build_poll_response(
         self,
         poll: Poll,
-        user_id: ID
+        user_id: str
     ) -> Dict[str, Any]:
         """
         Build poll response dict with vote counts and user votes.
