@@ -34,7 +34,7 @@ class ConversationService:
     async def _enrich_conversation_with_user_data(
         self,
         conversation: Conversation,
-        user_id: ID
+        user_id: str
     ) -> Dict[str, Any]:
         """
         Enrich conversation with TMS user data and member info.
@@ -273,7 +273,7 @@ class ConversationService:
     async def get_conversation(
         self,
         conversation_id: str,
-        user_id: ID
+        user_id: str
     ) -> Dict[str, Any]:
         """
         Get a single conversation by ID.
@@ -589,7 +589,7 @@ class ConversationService:
         self,
         conversation_id: str,
         user_id: str,
-        member_id: ID
+        member_id: str
     ) -> Dict[str, Any]:
         """
         Remove a member from a conversation.
@@ -703,7 +703,7 @@ class ConversationService:
     async def leave_conversation(
         self,
         conversation_id: str,
-        user_id: ID
+        user_id: str
     ) -> Dict[str, Any]:
         """
         Leave a conversation.
@@ -850,7 +850,7 @@ class ConversationService:
     async def mark_conversation_read(
         self,
         conversation_id: str,
-        user_id: ID
+        user_id: str
     ) -> Dict[str, Any]:
         """
         Mark conversation as read (update last_read_at).
