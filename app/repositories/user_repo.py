@@ -96,6 +96,7 @@ class UserRepository(BaseRepository[User]):
         )
 
         user_data = {
+            "id": tms_user_id,  # Use TMS user ID (CUID format) as primary key
             "tms_user_id": tms_user_id,
             "email": tms_data.get("email"),
             "username": tms_data.get("username"),  # No fallback - use GCGC's actual username
@@ -122,9 +123,9 @@ class UserRepository(BaseRepository[User]):
         # Use PostgreSQL UPSERT (INSERT ... ON CONFLICT DO UPDATE)
         stmt = insert(User).values(**user_data)
         stmt = stmt.on_conflict_do_update(
-            index_elements=["tms_user_id"],
+            index_elements=["tms_user_id"],  # Unique constraint on tms_user_id
             set_={
-                **{k: v for k, v in user_data.items() if k != "tms_user_id"},
+                **{k: v for k, v in user_data.items() if k not in ["id", "tms_user_id"]},  # Don't update ID
                 "updated_at": datetime.utcnow(),
             }
         ).returning(User)
