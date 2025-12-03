@@ -46,6 +46,11 @@ class BaseRepository(Generic[ModelType]):
             user = await user_repo.create(tms_user_id="123", settings_json={})
             ```
         """
+        # Auto-generate UUID for id field if not provided
+        if 'id' not in kwargs and hasattr(self.model, 'id'):
+            import uuid
+            kwargs['id'] = str(uuid.uuid4())
+
         instance = self.model(**kwargs)
         self.db.add(instance)
         await self.db.flush()
