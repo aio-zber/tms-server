@@ -5,7 +5,6 @@ Handles WebSocket connections, rooms, and message broadcasting.
 import asyncio
 import logging
 from typing import Dict, Set, Optional, Any
-from uuid import UUID
 
 import socketio
 from fastapi import FastAPI
@@ -209,8 +208,8 @@ class ConnectionManager:
                 logger.info(f"[join_conversation] Received data: {data}")
                 logger.info(f"[join_conversation] SID: {sid}")
 
-                conversation_id = UUID(data['conversation_id'])
-                logger.info(f"[join_conversation] Parsed conversation_id: {conversation_id}")
+                conversation_id = data['conversation_id']  # Keep as string (supports both UUID and CUID formats)
+                logger.info(f"[join_conversation] Conversation ID: {conversation_id}")
 
                 user_id = self.connections.get(sid)
                 logger.info(f"[join_conversation] User ID from connection: {user_id}")
@@ -324,7 +323,7 @@ class ConnectionManager:
             Expected data: {'conversation_id': 'uuid'}
             """
             try:
-                conversation_id = UUID(data['conversation_id'])
+                conversation_id = data['conversation_id']  # Keep as string (supports both UUID and CUID formats)
 
                 # Leave Socket.IO room
                 await self.sio.leave_room(sid, f"conversation:{conversation_id}")
@@ -336,7 +335,7 @@ class ConnectionManager:
                         del self.conversation_rooms[conversation_id]
 
                 await self.sio.emit('left_conversation', {
-                    'conversation_id': str(conversation_id)
+                    'conversation_id': conversation_id  # Already a string
                 }, to=sid)
 
             except Exception as e:
