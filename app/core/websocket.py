@@ -385,7 +385,7 @@ class ConnectionManager:
 
     async def broadcast_new_message(
         self,
-        conversation_id: UUID,
+        conversation_id: str,
         message_data: Dict[str, Any],
         sender_sid: Optional[str] = None
     ):
@@ -393,7 +393,7 @@ class ConnectionManager:
         Broadcast a new message to conversation members.
 
         Args:
-            conversation_id: Conversation UUID
+            conversation_id: Conversation ID (string)
             message_data: Message data to broadcast
             sender_sid: Optional sender SID to skip (not used - we send to everyone including sender)
         """
@@ -433,7 +433,7 @@ class ConnectionManager:
 
     async def broadcast_message_edited(
         self,
-        conversation_id: UUID,
+        conversation_id: str,
         message_data: Dict[str, Any]
     ):
         """
@@ -443,7 +443,7 @@ class ConnectionManager:
         to ensure frontend deduplication logic works correctly.
 
         Args:
-            conversation_id: Conversation UUID
+            conversation_id: Conversation ID
             message_data: Updated message data (full enriched message object)
         """
         room = f"conversation:{conversation_id}"
@@ -461,14 +461,14 @@ class ConnectionManager:
 
     async def broadcast_message_deleted(
         self,
-        conversation_id: UUID,
-        message_id: UUID
+        conversation_id: str,
+        message_id: str
     ):
         """
         Broadcast message deletion to conversation members.
 
         Args:
-            conversation_id: Conversation UUID
+            conversation_id: Conversation ID
             message_id: Deleted message UUID
         """
         room = f"conversation:{conversation_id}"
@@ -479,18 +479,18 @@ class ConnectionManager:
 
     async def broadcast_message_status(
         self,
-        conversation_id: UUID,
-        message_id: UUID,
-        user_id: UUID,
+        conversation_id: str,
+        message_id: str,
+        user_id: str,
         status: str
     ):
         """
         Broadcast message status update.
 
         Args:
-            conversation_id: Conversation UUID
-            message_id: Message UUID
-            user_id: User UUID
+            conversation_id: Conversation ID
+            message_id: Message ID
+            user_id: User ID
             status: Status (sent, delivered, read)
         """
         room = f"conversation:{conversation_id}"
@@ -502,16 +502,16 @@ class ConnectionManager:
 
     async def broadcast_reaction_added(
         self,
-        conversation_id: UUID,
-        message_id: UUID,
+        conversation_id: str,
+        message_id: str,
         reaction_data: Dict[str, Any]
     ):
         """
         Broadcast reaction added to conversation members.
 
         Args:
-            conversation_id: Conversation UUID
-            message_id: Message UUID
+            conversation_id: Conversation ID
+            message_id: Message ID
             reaction_data: Reaction data
         """
         room = f"conversation:{conversation_id}"
@@ -522,18 +522,18 @@ class ConnectionManager:
 
     async def broadcast_reaction_removed(
         self,
-        conversation_id: UUID,
-        message_id: UUID,
-        user_id: UUID,
+        conversation_id: str,
+        message_id: str,
+        user_id: str,
         emoji: str
     ):
         """
         Broadcast reaction removed to conversation members.
 
         Args:
-            conversation_id: Conversation UUID
-            message_id: Message UUID
-            user_id: User UUID
+            conversation_id: Conversation ID
+            message_id: Message ID
+            user_id: User ID
             emoji: Removed emoji
         """
         room = f"conversation:{conversation_id}"
@@ -545,7 +545,7 @@ class ConnectionManager:
 
     async def broadcast_to_conversation(
         self,
-        conversation_id: UUID,
+        conversation_id: str,
         data: Dict[str, Any]
     ):
         """
@@ -554,7 +554,7 @@ class ConnectionManager:
         Used for bulk operations like messages_delivered events.
 
         Args:
-            conversation_id: Conversation UUID
+            conversation_id: Conversation ID
             data: Data to broadcast (must include 'type' field for event routing)
         """
         room = f"conversation:{conversation_id}"
@@ -563,14 +563,14 @@ class ConnectionManager:
 
     async def broadcast_new_poll(
         self,
-        conversation_id: UUID,
+        conversation_id: str,
         poll_data: Dict[str, Any]
     ):
         """
         Broadcast a new poll creation to conversation members.
 
         Args:
-            conversation_id: Conversation UUID
+            conversation_id: Conversation ID
             poll_data: Poll and message data to broadcast
         """
         room = f"conversation:{conversation_id}"
@@ -581,14 +581,14 @@ class ConnectionManager:
 
     async def broadcast_poll_vote(
         self,
-        conversation_id: UUID,
+        conversation_id: str,
         vote_data: Dict[str, Any]
     ):
         """
         Broadcast poll vote update to conversation members.
 
         Args:
-            conversation_id: Conversation UUID
+            conversation_id: Conversation ID
             vote_data: Vote data including updated poll results
         """
         room = f"conversation:{conversation_id}"
@@ -599,14 +599,14 @@ class ConnectionManager:
 
     async def broadcast_poll_closed(
         self,
-        conversation_id: UUID,
+        conversation_id: str,
         poll_data: Dict[str, Any]
     ):
         """
         Broadcast poll closed event to conversation members.
 
         Args:
-            conversation_id: Conversation UUID
+            conversation_id: Conversation ID
             poll_data: Closed poll data
         """
         room = f"conversation:{conversation_id}"
@@ -617,9 +617,9 @@ class ConnectionManager:
 
     async def broadcast_member_added(
         self,
-        conversation_id: UUID,
+        conversation_id: str,
         added_members: list[Dict[str, Any]],
-        added_by: UUID
+        added_by: str
     ):
         """
         Broadcast member addition to conversation members.
@@ -627,8 +627,8 @@ class ConnectionManager:
         Follows Telegram/Messenger pattern for group member notifications.
 
         Args:
-            conversation_id: Conversation UUID
-            added_members: List of added member data [{'user_id': UUID, 'full_name': str, 'role': str}]
+            conversation_id: Conversation ID
+            added_members: List of added member data [{'user_id': str, 'full_name': str, 'role': str}]
             added_by: User ID who added the members
         """
         room = f"conversation:{conversation_id}"
@@ -653,9 +653,9 @@ class ConnectionManager:
 
     async def broadcast_member_removed(
         self,
-        conversation_id: UUID,
-        removed_user_id: UUID,
-        removed_by: UUID
+        conversation_id: str,
+        removed_user_id: str,
+        removed_by: str
     ):
         """
         Broadcast member removal to conversation members.
@@ -663,7 +663,7 @@ class ConnectionManager:
         Notifies when an admin removes a member from the group.
 
         Args:
-            conversation_id: Conversation UUID
+            conversation_id: Conversation ID
             removed_user_id: User ID who was removed
             removed_by: User ID who removed the member
         """
@@ -682,8 +682,8 @@ class ConnectionManager:
 
     async def broadcast_member_left(
         self,
-        conversation_id: UUID,
-        user_id: UUID,
+        conversation_id: str,
+        user_id: str,
         user_name: str
     ):
         """
@@ -692,7 +692,7 @@ class ConnectionManager:
         Notifies when a member voluntarily leaves the conversation.
 
         Args:
-            conversation_id: Conversation UUID
+            conversation_id: Conversation ID
             user_id: User ID who left
             user_name: Full name of the user who left
         """
@@ -711,8 +711,8 @@ class ConnectionManager:
 
     async def broadcast_conversation_updated(
         self,
-        conversation_id: UUID,
-        updated_by: UUID,
+        conversation_id: str,
+        updated_by: str,
         name: Optional[str] = None,
         avatar_url: Optional[str] = None
     ):
@@ -722,7 +722,7 @@ class ConnectionManager:
         Notifies when conversation name or avatar changes.
 
         Args:
-            conversation_id: Conversation UUID
+            conversation_id: Conversation ID
             updated_by: User ID who updated the conversation
             name: New conversation name (if changed)
             avatar_url: New avatar URL (if changed)
