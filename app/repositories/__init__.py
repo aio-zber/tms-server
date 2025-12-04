@@ -13,6 +13,10 @@ from app.repositories.conversation_repo import (
     ConversationMemberRepository
 )
 from app.repositories.user_repo import UserRepository
+from app.repositories.notification_repo import (
+    NotificationPreferencesRepository,
+    MutedConversationRepository,
+)
 
 __all__ = [
     "BaseRepository",
@@ -22,4 +26,6 @@ __all__ = [
     "ConversationRepository",
     "ConversationMemberRepository",
     "UserRepository",
+    "NotificationPreferencesRepository",
+    "MutedConversationRepository",
 ]
