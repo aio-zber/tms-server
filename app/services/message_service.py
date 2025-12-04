@@ -424,12 +424,23 @@ class MessageService:
             metadata_json=metadata_json or {},
             reply_to_id=reply_to_id
         )
+
+        # CRITICAL FIX: Ensure message.id is populated before creating statuses
+        # Flush to database and refresh instance to get id
+        await self.db.flush()
+        await self.db.refresh(message)
+
+        # DEBUG: Verify message.id is not None
+        if not message.id:
+            raise RuntimeError(f"Message id is None after flush/refresh - cannot create statuses")
+
+        print(f"[MESSAGE_SERVICE] ✅ Message created with id: {message.id}")
         print(f"[MESSAGE_SERVICE] ✅ Message created: id={message.id}, content='{content}', reply_to_id={message.reply_to_id}")
         print(f"[MESSAGE_SERVICE] 📅 Message timestamps: created_at={message.created_at}, updated_at={message.updated_at}")
         print(f"[MESSAGE_SERVICE] 🗑️ Message deleted_at: {message.deleted_at}")
         print(f"[MESSAGE_SERVICE] 🔍 Message conversation_id: {message.conversation_id}")
         print(f"[MESSAGE_SERVICE] 🔍 Message sender_id: {message.sender_id}")
-        
+
         # CRITICAL DEBUG: Check if created_at is in the past
         from datetime import datetime, timezone
         now = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -445,25 +456,44 @@ class MessageService:
         )
         members = result.scalars().all()
 
+        # DEFENSIVE: Ensure message.id is valid before creating statuses
+        if not message.id:
+            raise RuntimeError(
+                f"Cannot create message statuses: message.id is None "
+                f"(conversation_id={conversation_id}, sender_id={sender_id})"
+            )
+
+        print(f"[MESSAGE_SERVICE] 📊 Creating statuses for {len(members)} members (message_id={message.id})")
+
         # Create message statuses for all members
-        for member in members:
-            if member.user_id == sender_id:
-                # Sender: mark as read immediately
-                await self.status_repo.upsert_status(
-                    message.id,
-                    member.user_id,
-                    MessageStatusType.READ
-                )
-            else:
-                # Check if user is blocked
-                is_blocked = await self._check_user_blocked(sender_id, member.user_id)
-                if not is_blocked:
-                    # Recipients: mark as sent
+        try:
+            for member in members:
+                if member.user_id == sender_id:
+                    # Sender: mark as read immediately
                     await self.status_repo.upsert_status(
                         message.id,
                         member.user_id,
-                        MessageStatusType.SENT
+                        MessageStatusType.READ
                     )
+                else:
+                    # Check if user is blocked
+                    is_blocked = await self._check_user_blocked(sender_id, member.user_id)
+                    if not is_blocked:
+                        # Recipients: mark as sent
+                        await self.status_repo.upsert_status(
+                            message.id,
+                            member.user_id,
+                            MessageStatusType.SENT
+                        )
+            print(f"[MESSAGE_SERVICE] ✅ Created statuses for all members")
+        except Exception as status_error:
+            print(f"[MESSAGE_SERVICE] ❌ Failed to create message statuses: {status_error}")
+            # Rollback to prevent partial status creation
+            await self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to create message statuses: {str(status_error)}"
+            )
 
         # Update conversation timestamp
         await self._update_conversation_timestamp(conversation_id)

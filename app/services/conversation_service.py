@@ -510,9 +510,10 @@ class ConversationService:
 
         # Add members
         added_count = await self.member_repo.add_members(conversation_id, member_ids)
-        await self.db.commit()
+        # CRITICAL FIX: Flush but don't commit yet - system message creation comes first
+        await self.db.flush()
 
-        # Create system message and broadcast
+        # Create system message and broadcast - BEFORE commit
         try:
             from app.core.websocket import connection_manager
             from app.models.user import User
@@ -520,6 +521,11 @@ class ConversationService:
             from sqlalchemy import select
             import logging
             logger = logging.getLogger(__name__)
+
+            logger.info(
+                f"[CONVERSATION_SERVICE] 📝 Creating system message for add_members: "
+                f"conversation_id={conversation_id}, added_count={added_count}"
+            )
 
             # Get actor (user who added members)
             result = await self.db.execute(select(User).where(User.id == user_id))
@@ -539,14 +545,23 @@ class ConversationService:
                     })
 
             # Create system message in database
+            system_msg = None
             if actor and added_members_data:
+                logger.info(f"[CONVERSATION_SERVICE] 📝 Creating system message with actor={actor.email}")
                 system_msg = await SystemMessageService.create_member_added_message(
                     db=self.db,
                     conversation_id=conversation_id,
                     actor=actor,
                     added_members=added_members_data
                 )
+                logger.info(f"[CONVERSATION_SERVICE] ✅ System message created: {system_msg.id}")
 
+            # CRITICAL: Commit transaction AFTER system message is created
+            await self.db.commit()
+            logger.info(f"[CONVERSATION_SERVICE] ✅ Transaction committed (members + system message)")
+
+            # NOW broadcast (WebSocket failures won't affect database state)
+            if system_msg:
                 # Convert message to dict for broadcasting
                 message_dict = {
                     'id': str(system_msg.id),
@@ -565,8 +580,7 @@ class ConversationService:
                     conversation_id=conversation_id,
                     message_data=message_dict
                 )
-
-                logger.info(f"✅ Created and broadcasted system message for member_added event")
+                logger.info(f"[CONVERSATION_SERVICE] ✅ Broadcasted system message")
 
             # Also broadcast member_added event (for member list updates)
             await connection_manager.broadcast_member_added(
@@ -574,10 +588,21 @@ class ConversationService:
                 added_members=added_members_data,
                 added_by=user_id
             )
-        except Exception as ws_error:
+            logger.info(f"[CONVERSATION_SERVICE] ✅ Broadcasted member_added event")
+
+        except Exception as error:
             import logging
             logger = logging.getLogger(__name__)
-            logger.error(f"Failed to create/broadcast system message: {ws_error}", exc_info=True)
+            logger.error(
+                f"[CONVERSATION_SERVICE] ❌ add_members failed: {type(error).__name__}: {error}",
+                exc_info=True
+            )
+            # Rollback transaction (members + system message)
+            await self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to add members: {str(error)}"
+            )
 
         return {
             "success": True,
@@ -637,9 +662,10 @@ class ConversationService:
                 detail="Member not found in conversation"
             )
 
-        await self.db.commit()
+        # CRITICAL FIX: Flush but don't commit yet - system message creation comes first
+        await self.db.flush()
 
-        # Create system message and broadcast
+        # Create system message and broadcast - BEFORE commit
         try:
             from app.core.websocket import connection_manager
             from app.models.user import User
@@ -648,6 +674,11 @@ class ConversationService:
             import logging
             logger = logging.getLogger(__name__)
 
+            logger.info(
+                f"[CONVERSATION_SERVICE] 📝 Creating system message for remove_member: "
+                f"conversation_id={conversation_id}, member_id={member_id}"
+            )
+
             # Get actor and removed user
             result = await self.db.execute(select(User).where(User.id == user_id))
             actor = result.scalar_one_or_none()
@@ -655,14 +686,23 @@ class ConversationService:
             result = await self.db.execute(select(User).where(User.id == member_id))
             removed_user = result.scalar_one_or_none()
 
+            system_msg = None
             if actor and removed_user:
+                logger.info(f"[CONVERSATION_SERVICE] 📝 Creating system message with actor={actor.email}")
                 system_msg = await SystemMessageService.create_member_removed_message(
                     db=self.db,
                     conversation_id=conversation_id,
                     actor=actor,
                     removed_user=removed_user
                 )
+                logger.info(f"[CONVERSATION_SERVICE] ✅ System message created: {system_msg.id}")
 
+            # CRITICAL: Commit transaction AFTER system message is created
+            await self.db.commit()
+            logger.info(f"[CONVERSATION_SERVICE] ✅ Transaction committed (member removal + system message)")
+
+            # NOW broadcast (WebSocket failures won't affect database state)
+            if system_msg:
                 # Broadcast as regular message
                 message_dict = {
                     'id': str(system_msg.id),
@@ -680,8 +720,7 @@ class ConversationService:
                     conversation_id=conversation_id,
                     message_data=message_dict
                 )
-
-                logger.info(f"✅ Created and broadcasted system message for member_removed event")
+                logger.info(f"[CONVERSATION_SERVICE] ✅ Broadcasted system message")
 
             # Also broadcast member_removed event (for member list updates)
             await connection_manager.broadcast_member_removed(
@@ -689,10 +728,21 @@ class ConversationService:
                 removed_user_id=member_id,
                 removed_by=user_id
             )
-        except Exception as ws_error:
+            logger.info(f"[CONVERSATION_SERVICE] ✅ Broadcasted member_removed event")
+
+        except Exception as error:
             import logging
             logger = logging.getLogger(__name__)
-            logger.error(f"Failed to create/broadcast system message: {ws_error}", exc_info=True)
+            logger.error(
+                f"[CONVERSATION_SERVICE] ❌ remove_member failed: {type(error).__name__}: {error}",
+                exc_info=True
+            )
+            # Rollback transaction (member removal + system message)
+            await self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to remove member: {str(error)}"
+            )
 
         return {
             "success": True,
