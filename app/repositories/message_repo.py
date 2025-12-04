@@ -499,6 +499,14 @@ class MessageStatusRepository(BaseRepository[MessageStatus]):
         import logging
         logger = logging.getLogger(__name__)
 
+        # DEFENSIVE: Check for NULL message_id
+        if not message_id:
+            logger.error(
+                f"[MESSAGE_REPO] ❌ upsert_status called with NULL message_id! "
+                f"user_id={user_id}, status={status}"
+            )
+            raise ValueError("message_id cannot be None or empty")
+
         try:
             # Check if status exists
             result = await self.db.execute(
