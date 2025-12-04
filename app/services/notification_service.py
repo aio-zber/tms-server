@@ -78,8 +78,8 @@ class NotificationService:
             'enable_reaction_notifications': preferences.enable_reaction_notifications,
             'enable_member_activity_notifications': preferences.enable_member_activity_notifications,
             'dnd_enabled': preferences.dnd_enabled,
-            'dnd_start': preferences.dnd_start.isoformat() if preferences.dnd_start else None,
-            'dnd_end': preferences.dnd_end.isoformat() if preferences.dnd_end else None,
+            'dnd_start': preferences.dnd_start.strftime('%H:%M') if preferences.dnd_start else None,
+            'dnd_end': preferences.dnd_end.strftime('%H:%M') if preferences.dnd_end else None,
             'created_at': preferences.created_at,
             'updated_at': preferences.updated_at
         }
@@ -141,8 +141,8 @@ class NotificationService:
             'enable_reaction_notifications': preferences.enable_reaction_notifications,
             'enable_member_activity_notifications': preferences.enable_member_activity_notifications,
             'dnd_enabled': preferences.dnd_enabled,
-            'dnd_start': preferences.dnd_start.isoformat() if preferences.dnd_start else None,
-            'dnd_end': preferences.dnd_end.isoformat() if preferences.dnd_end else None,
+            'dnd_start': preferences.dnd_start.strftime('%H:%M') if preferences.dnd_start else None,
+            'dnd_end': preferences.dnd_end.strftime('%H:%M') if preferences.dnd_end else None,
             'created_at': preferences.created_at,
             'updated_at': preferences.updated_at
         }
