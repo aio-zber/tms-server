@@ -13,6 +13,10 @@ from sqlalchemy.orm import selectinload
 from app.models.notification_preferences import NotificationPreferences
 from app.models.muted_conversation import MutedConversation
 from app.models.user import User
+from app.repositories.notification_repo import (
+    NotificationPreferencesRepository,
+    MutedConversationRepository
+)
 from app.schemas.notification import (
     NotificationPreferencesResponse,
     NotificationPreferencesUpdate,
@@ -29,6 +33,8 @@ class NotificationService:
     def __init__(self, db: AsyncSession):
         """Initialize notification service."""
         self.db = db
+        self.preferences_repo = NotificationPreferencesRepository(db)
+        self.muted_repo = MutedConversationRepository(db)
 
     async def get_or_create_preferences(self, user_id: str) -> NotificationPreferencesResponse:
         """
@@ -40,16 +46,12 @@ class NotificationService:
         Returns:
             NotificationPreferencesResponse
         """
-        # Try to get existing preferences
-        stmt = select(NotificationPreferences).where(
-            NotificationPreferences.user_id == user_id
-        )
-        result = await self.db.execute(stmt)
-        preferences = result.scalar_one_or_none()
+        # Try to get existing preferences using repository
+        preferences = await self.preferences_repo.get_by_user_id(user_id)
 
         # Create defaults if not exists
         if not preferences:
-            preferences = NotificationPreferences(
+            preferences = await self.preferences_repo.create(
                 user_id=user_id,
                 sound_enabled=True,
                 sound_volume=75,
@@ -62,10 +64,6 @@ class NotificationService:
                 dnd_start=None,
                 dnd_end=None
             )
-            self.db.add(preferences)
-            await self.db.commit()
-            await self.db.refresh(preferences)
-
             logger.info(f"Created default notification preferences for user {user_id}")
 
         # Convert to response format (handle Time objects)
@@ -103,17 +101,8 @@ class NotificationService:
         Returns:
             Updated NotificationPreferencesResponse
         """
-        # Get existing preferences (create if not exists)
-        stmt = select(NotificationPreferences).where(
-            NotificationPreferences.user_id == user_id
-        )
-        result = await self.db.execute(stmt)
-        preferences = result.scalar_one_or_none()
-
-        # Create if not exists
-        if not preferences:
-            preferences = NotificationPreferences(user_id=user_id)
-            self.db.add(preferences)
+        # Get or create preferences using repository
+        preferences = await self.preferences_repo.get_by_user_id(user_id)
 
         # Apply updates (only update fields that are provided)
         update_data = updates.model_dump(exclude_unset=True)
@@ -124,13 +113,21 @@ class NotificationService:
         if 'dnd_end' in update_data and update_data['dnd_end'] is not None:
             update_data['dnd_end'] = Time.fromisoformat(update_data['dnd_end'])
 
-        for key, value in update_data.items():
-            setattr(preferences, key, value)
+        if not preferences:
+            # Create new with provided values
+            preferences = await self.preferences_repo.create(
+                user_id=user_id,
+                **update_data
+            )
+            logger.info(f"Created notification preferences for user {user_id}")
+        else:
+            # Update existing
+            for key, value in update_data.items():
+                setattr(preferences, key, value)
 
-        await self.db.commit()
-        await self.db.refresh(preferences)
-
-        logger.info(f"Updated notification preferences for user {user_id}")
+            await self.db.commit()
+            await self.db.refresh(preferences)
+            logger.info(f"Updated notification preferences for user {user_id}")
 
         # Convert time objects back to strings for response
         response_dict = {
@@ -167,28 +164,18 @@ class NotificationService:
         Returns:
             MutedConversationResponse
         """
-        # Check if already muted
-        stmt = select(MutedConversation).where(
-            and_(
-                MutedConversation.user_id == user_id,
-                MutedConversation.conversation_id == conversation_id
-            )
-        )
-        result = await self.db.execute(stmt)
-        existing = result.scalar_one_or_none()
+        # Check if already muted using repository
+        existing = await self.muted_repo.get_mute(user_id, conversation_id)
 
         if existing:
             # Already muted, return existing
             return MutedConversationResponse.model_validate(existing)
 
-        # Create new muted conversation
-        muted = MutedConversation(
+        # Create new muted conversation using repository
+        muted = await self.muted_repo.create(
             user_id=user_id,
             conversation_id=conversation_id
         )
-        self.db.add(muted)
-        await self.db.commit()
-        await self.db.refresh(muted)
 
         logger.info(f"User {user_id} muted conversation {conversation_id}")
 
@@ -238,12 +225,8 @@ class NotificationService:
         Returns:
             MutedConversationListResponse
         """
-        stmt = select(MutedConversation).where(
-            MutedConversation.user_id == user_id
-        ).order_by(MutedConversation.muted_at.desc())
-
-        result = await self.db.execute(stmt)
-        muted_convos = result.scalars().all()
+        # Get all muted conversations using repository
+        muted_convos = await self.muted_repo.get_user_mutes(user_id)
 
         return MutedConversationListResponse(
             muted_conversations=[
