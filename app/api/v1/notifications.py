@@ -40,7 +40,7 @@ async def get_notification_preferences(
 
     try:
         preferences = await notification_service.get_or_create_preferences(
-            user_id=str(current_user["id"])
+            user_id=current_user["local_user_id"]
         )
         return preferences
     except Exception as e:
@@ -82,7 +82,7 @@ async def update_notification_preferences(
 
     try:
         preferences = await notification_service.update_preferences(
-            user_id=str(current_user["id"]),
+            user_id=current_user["local_user_id"],
             updates=updates
         )
         return preferences
@@ -120,7 +120,7 @@ async def mute_conversation(
 
     try:
         muted = await notification_service.mute_conversation(
-            user_id=str(current_user["id"]),
+            user_id=current_user["local_user_id"],
             conversation_id=conversation_id
         )
         return muted
@@ -151,7 +151,7 @@ async def unmute_conversation(
 
     try:
         was_muted = await notification_service.unmute_conversation(
-            user_id=str(current_user["id"]),
+            user_id=current_user["local_user_id"],
             conversation_id=conversation_id
         )
 
@@ -187,7 +187,7 @@ async def get_muted_conversations(
 
     try:
         muted_conversations = await notification_service.get_muted_conversations(
-            user_id=str(current_user["id"])
+            user_id=current_user["local_user_id"]
         )
         return muted_conversations
     except Exception as e:
