@@ -2,7 +2,7 @@
 Poll API routes.
 Provides endpoints for creating polls, voting, and managing poll results.
 """
-# UUID import removed - using str for ID types
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
