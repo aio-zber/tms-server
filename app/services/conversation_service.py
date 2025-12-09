@@ -388,35 +388,54 @@ class ConversationService:
             avatar_url=avatar_url
         )
 
-        await self.db.commit()
+        # Flush but don't commit yet
+        await self.db.flush()
 
-        # Create system message and broadcast
-        try:
-            from app.core.websocket import connection_manager
-            from app.models.user import User
-            from app.services.system_message_service import SystemMessageService
-            from sqlalchemy import select
-            import logging
-            logger = logging.getLogger(__name__)
+        # Create system message
+        from app.core.websocket import connection_manager
+        from app.models.user import User
+        from app.services.system_message_service import SystemMessageService
+        from sqlalchemy import select
+        import logging
+        logger = logging.getLogger(__name__)
 
-            # Get actor
-            result = await self.db.execute(select(User).where(User.id == user_id))
-            actor = result.scalar_one_or_none()
+        # Get actor
+        result = await self.db.execute(select(User).where(User.id == user_id))
+        actor = result.scalar_one_or_none()
 
-            if actor:
-                updates_dict = {}
-                if name is not None:
-                    updates_dict['name'] = name
-                if avatar_url is not None:
-                    updates_dict['avatar_url'] = avatar_url
+        system_msg = None
+        if actor:
+            updates_dict = {}
+            if name is not None:
+                updates_dict['name'] = name
+            if avatar_url is not None:
+                updates_dict['avatar_url'] = avatar_url
 
+            try:
                 system_msg = await SystemMessageService.create_conversation_updated_message(
                     db=self.db,
                     conversation_id=conversation_id,
                     actor=actor,
                     updates=updates_dict
                 )
+                # Flush system message
+                await self.db.flush()
+                logger.info(f"✅ Created system message for conversation_updated event")
+            except Exception as msg_error:
+                logger.error(f"Failed to create system message: {msg_error}", exc_info=True)
+                # Rollback on system message failure
+                await self.db.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to create system message"
+                )
 
+        # Commit all database changes atomically
+        await self.db.commit()
+
+        # Broadcast via WebSocket (failures won't affect DB since already committed)
+        try:
+            if system_msg:
                 # Broadcast as regular message
                 message_dict = {
                     'id': str(system_msg.id),
@@ -435,7 +454,7 @@ class ConversationService:
                     message_data=message_dict
                 )
 
-                logger.info(f"✅ Created and broadcasted system message for conversation_updated event")
+                logger.info(f"✅ Broadcasted system message for conversation_updated event")
 
             # Also broadcast conversation_updated event (for conversation list updates)
             await connection_manager.broadcast_conversation_updated(
@@ -445,9 +464,7 @@ class ConversationService:
                 avatar_url=avatar_url
             )
         except Exception as ws_error:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Failed to create/broadcast system message: {ws_error}", exc_info=True)
+            logger.warning(f"WebSocket broadcast failed (non-fatal): {ws_error}")
 
         # Reload and enrich
         updated_conversation = await self.conversation_repo.get_with_relations(conversation_id)
