@@ -2,6 +2,7 @@
 Poll service containing business logic for poll operations.
 Handles poll creation, voting, closing, and results retrieval.
 """
+import uuid
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 # UUID import removed - using str for ID types
@@ -14,6 +15,7 @@ from app.models.poll import Poll, PollOption, PollVote
 from app.models.message import Message, MessageType
 from app.models.conversation import ConversationMember
 from app.models.user import User
+from app.repositories.message_repo import MessageRepository
 
 
 class PollService:
@@ -84,19 +86,20 @@ class PollService:
                 detail="You are not a member of this conversation"
             )
 
-        # Create message for poll
-        message = Message(
+        # Create message for poll using MessageRepository to auto-generate ID
+        message_repo = MessageRepository(self.db)
+        message = await message_repo.create(
             conversation_id=conversation_id,
             sender_id=user_id,
             content=question,  # Store question as message content
             type=MessageType.POLL,
             metadata_json={}
         )
-        self.db.add(message)
         await self.db.flush()  # Get message ID
 
-        # Create poll
+        # Create poll with auto-generated ID
         poll = Poll(
+            id=str(uuid.uuid4()),
             message_id=message.id,
             question=question,
             multiple_choice=multiple_choice,
@@ -105,10 +108,11 @@ class PollService:
         self.db.add(poll)
         await self.db.flush()  # Get poll ID
 
-        # Create poll options
+        # Create poll options with auto-generated IDs
         poll_options = []
         for opt_data in options:
             poll_option = PollOption(
+                id=str(uuid.uuid4()),
                 poll_id=poll.id,
                 option_text=opt_data['option_text'],
                 position=opt_data['position']
@@ -234,8 +238,9 @@ class PollService:
                     # Remove vote (toggle off)
                     await self.db.delete(existing_vote)
                 else:
-                    # Add vote (toggle on)
+                    # Add vote (toggle on) with auto-generated ID
                     vote = PollVote(
+                        id=str(uuid.uuid4()),
                         poll_id=poll_id,
                         option_id=option_id,
                         user_id=user_id
@@ -279,8 +284,9 @@ class PollService:
                 for vote in existing_votes:
                     await self.db.delete(vote)
 
-                # Add new vote
+                # Add new vote with auto-generated ID
                 vote = PollVote(
+                    id=str(uuid.uuid4()),
                     poll_id=poll_id,
                     option_id=option_ids[0],
                     user_id=user_id
