@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.message import Message, MessageType
 from app.models.user import User
+from app.repositories.message_repo import MessageRepository
 
 
 class SystemMessageService:
@@ -268,17 +269,17 @@ class SystemMessageService:
         Returns:
             Created Message object
         """
-        message = Message(
+        # Use MessageRepository to auto-generate ID
+        message_repo = MessageRepository(db)
+        message = await message_repo.create(
             conversation_id=conversation_id,
             sender_id=sender_id,
             content=content,
             type=MessageType.SYSTEM,
             metadata_json=metadata,
-            is_edited=False,
-            created_at=datetime.utcnow()
+            is_edited=False
         )
 
-        db.add(message)
         await db.commit()
         await db.refresh(message)
 
