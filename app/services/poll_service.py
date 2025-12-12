@@ -237,6 +237,8 @@ class PollService:
                 if existing_vote:
                     # Remove vote (toggle off)
                     await self.db.delete(existing_vote)
+                    # Flush to ensure delete is applied to database before adding new votes
+                    await self.db.flush()
                 else:
                     # Add vote (toggle on) with auto-generated ID
                     vote = PollVote(
@@ -246,6 +248,10 @@ class PollService:
                         user_id=user_id
                     )
                     self.db.add(vote)
+                    # CRITICAL FIX: Flush and refresh to ensure vote.id is populated
+                    # Prevents unique constraint violations and ensures database state is consistent
+                    await self.db.flush()
+                    await self.db.refresh(vote)
         else:
             # Single choice: Replace existing vote
             if len(option_ids) > 1:
@@ -284,6 +290,10 @@ class PollService:
                 for vote in existing_votes:
                     await self.db.delete(vote)
 
+                # CRITICAL FIX: Flush deletes before adding new vote
+                # Prevents unique constraint violations
+                await self.db.flush()
+
                 # Add new vote with auto-generated ID
                 vote = PollVote(
                     id=str(uuid.uuid4()),
@@ -293,6 +303,12 @@ class PollService:
                 )
                 self.db.add(vote)
 
+                # CRITICAL FIX: Flush and refresh to ensure vote.id is populated
+                # Prevents unique constraint violations and ensures database state is consistent
+                await self.db.flush()
+                await self.db.refresh(vote)
+
+        # Commit all changes atomically
         await self.db.commit()
 
         # Return updated poll data

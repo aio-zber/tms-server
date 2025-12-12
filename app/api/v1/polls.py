@@ -120,29 +120,52 @@ async def vote_on_poll(
     For single-choice polls: Replaces existing vote
     For multiple-choice polls: Toggles votes on specified options
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
     service = PollService(db)
 
-    # Get user_id from local user record
-    from app.models.user import User
-    from sqlalchemy import select
+    try:
+        # Get user_id from local user record
+        from app.models.user import User
+        from sqlalchemy import select
 
-    result = await db.execute(
-        select(User).where(User.tms_user_id == current_user["tms_user_id"])
-    )
-    user = result.scalar_one_or_none()
+        result = await db.execute(
+            select(User).where(User.tms_user_id == current_user["tms_user_id"])
+        )
+        user = result.scalar_one_or_none()
 
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found in local database"
+        if not user:
+            logger.warning(f"[POLLS] User not found: tms_user_id={current_user.get('tms_user_id')}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found in local database"
+            )
+
+        logger.info(f"[POLLS] Vote request: poll_id={poll_id}, user_id={user.id}, option_ids={vote_data.option_ids}")
+
+        # Vote on poll
+        poll_response = await service.vote_on_poll(
+            poll_id=poll_id,
+            user_id=user.id,
+            option_ids=vote_data.option_ids
         )
 
-    # Vote on poll
-    poll_response = await service.vote_on_poll(
-        poll_id=poll_id,
-        user_id=user.id,
-        option_ids=vote_data.option_ids
-    )
+        logger.info(f"[POLLS] ✅ Vote successful: poll_id={poll_id}, user_id={user.id}")
+
+    except HTTPException:
+        # Re-raise HTTP exceptions (already have proper status codes)
+        raise
+    except Exception as error:
+        logger.error(
+            f"[POLLS] ❌ Vote failed: poll_id={poll_id}, user_id={user.id if 'user' in locals() else 'unknown'}, "
+            f"error={type(error).__name__}: {str(error)}",
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to vote on poll: {str(error)}"
+        )
 
     # Get conversation_id for WebSocket broadcast
     from app.models.poll import Poll
