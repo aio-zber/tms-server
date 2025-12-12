@@ -259,6 +259,11 @@ class SystemMessageService:
         """
         Internal helper to create and persist a system message.
 
+        IMPORTANT: This method does NOT commit the transaction.
+        The caller is responsible for committing after all operations complete.
+        This ensures atomic transactions where system messages and their triggering
+        operations (member add/remove, conversation updates) succeed or fail together.
+
         Args:
             db: Database session
             conversation_id: Target conversation ID
@@ -267,7 +272,7 @@ class SystemMessageService:
             metadata: Event metadata dict
 
         Returns:
-            Created Message object
+            Created Message object (not yet committed)
         """
         # Use MessageRepository to auto-generate ID
         message_repo = MessageRepository(db)
@@ -280,7 +285,9 @@ class SystemMessageService:
             is_edited=False
         )
 
-        await db.commit()
+        # CRITICAL FIX: Flush but DON'T commit
+        # Caller will commit after all operations complete
+        await db.flush()
         await db.refresh(message)
 
         return message

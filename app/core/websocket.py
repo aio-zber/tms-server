@@ -42,8 +42,12 @@ class ConnectionManager:
             self.sio = socketio.AsyncServer(
                 async_mode='asgi',
                 cors_allowed_origins=cors_origins,
-                logger=settings.debug,
-                engineio_logger=settings.debug,
+                # Disable Socket.IO internal logging to prevent ERROR-level log spam
+                # Socket.IO library logs normal operations (emit events, packets) at ERROR level
+                # which causes Railway rate limits (500 logs/sec) and hides real errors
+                # Our application logger handles important events at appropriate levels
+                logger=False,
+                engineio_logger=False,
                 ping_timeout=settings.ws_heartbeat_interval,
                 ping_interval=settings.ws_heartbeat_interval // 2,
                 # Critical: These control Engine.IO transport layer
