@@ -3,7 +3,7 @@ Pydantic schemas for poll requests and responses.
 Handles validation for poll-related API endpoints.
 """
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
 # UUID import removed - using str for ID types
 
 from pydantic import BaseModel, Field, field_validator, ConfigDict
@@ -230,6 +230,49 @@ class PollVoteResponse(BaseModel):
                     "isClosed": False,
                     "totalVotes": 11,
                     "userVotes": ["123e4567-e89b-12d3-a456-426614174002"]
+                }
+            }
+        }
+    )
+
+
+class CreatePollResponse(BaseModel):
+    """Response when creating a new poll."""
+
+    poll: PollResponse
+    message: "MessageResponse"  # Forward reference to avoid circular import
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        populate_by_name=True,
+        json_schema_extra={
+            "example": {
+                "poll": {
+                    "id": "123e4567-e89b-12d3-a456-426614174000",
+                    "messageId": "123e4567-e89b-12d3-a456-426614174001",
+                    "question": "What's for lunch?",
+                    "multipleChoice": False,
+                    "isClosed": False,
+                    "totalVotes": 0,
+                    "options": [
+                        {
+                            "id": "123e4567-e89b-12d3-a456-426614174002",
+                            "pollId": "123e4567-e89b-12d3-a456-426614174000",
+                            "optionText": "Pizza",
+                            "position": 0,
+                            "voteCount": 0,
+                            "voters": []
+                        }
+                    ],
+                    "userVotes": []
+                },
+                "message": {
+                    "id": "123e4567-e89b-12d3-a456-426614174001",
+                    "conversationId": "123e4567-e89b-12d3-a456-426614174003",
+                    "senderId": "123e4567-e89b-12d3-a456-426614174004",
+                    "content": "What's for lunch?",
+                    "type": "POLL",
+                    "createdAt": "2025-10-27T10:00:00Z"
                 }
             }
         }

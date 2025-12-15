@@ -13,7 +13,8 @@ from app.schemas.poll import (
     PollCreate,
     PollVoteCreate,
     PollResponse,
-    PollVoteResponse
+    PollVoteResponse,
+    CreatePollResponse
 )
 from app.services.poll_service import PollService
 from app.core.websocket import connection_manager
@@ -23,7 +24,7 @@ router = APIRouter()
 
 @router.post(
     "/",
-    response_model=dict,
+    response_model=CreatePollResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Create a new poll",
     description="Create a new poll attached to a message in a conversation."
@@ -42,61 +43,73 @@ async def create_poll(
     - **multiple_choice**: Allow multiple answers (default: False)
     - **expires_at**: Optional expiration datetime
     """
-    service = PollService(db)
-
-    # Get user_id from local user record
-    from app.models.user import User
-    from sqlalchemy import select
-
-    result = await db.execute(
-        select(User).where(User.tms_user_id == current_user["tms_user_id"])
-    )
-    user = result.scalar_one_or_none()
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found in local database"
-        )
-
-    # Create poll
-    result = await service.create_poll(
-        user_id=user.id,
-        conversation_id=poll_data.conversation_id,
-        question=poll_data.question,
-        options=[{"option_text": opt.option_text, "position": opt.position} for opt in poll_data.options],
-        multiple_choice=poll_data.multiple_choice,
-        expires_at=poll_data.expires_at
-    )
-
-    # Broadcast poll creation via WebSocket
     try:
-        # Convert UUIDs to strings for JSON serialization
-        def convert_uuids(obj):
-            """Recursively convert UUID objects to strings."""
-            from datetime import datetime
-            if isinstance(obj, dict):
-                return {k: convert_uuids(v) for k, v in obj.items()}
-            elif isinstance(obj, list):
-                return [convert_uuids(item) for item in obj]
-            elif isinstance(obj, UUID):
-                return str(obj)
-            elif isinstance(obj, datetime):
-                return obj.isoformat()
-            else:
-                return obj
+        service = PollService(db)
 
-        broadcast_data = convert_uuids(result)
+        # Get user_id from local user record
+        from app.models.user import User
+        from sqlalchemy import select
 
-        await connection_manager.broadcast_new_poll(
-            poll_data.conversation_id,
-            broadcast_data
+        result = await db.execute(
+            select(User).where(User.tms_user_id == current_user["tms_user_id"])
         )
-    except Exception as e:
-        print(f"[POLLS] Failed to broadcast poll creation: {e}")
-        # Don't fail the request if broadcast fails
+        user = result.scalar_one_or_none()
 
-    return result
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found in local database"
+            )
+
+        # Create poll
+        result = await service.create_poll(
+            user_id=user.id,
+            conversation_id=poll_data.conversation_id,
+            question=poll_data.question,
+            options=[{"option_text": opt.option_text, "position": opt.position} for opt in poll_data.options],
+            multiple_choice=poll_data.multiple_choice,
+            expires_at=poll_data.expires_at
+        )
+
+        # Broadcast poll creation via WebSocket
+        try:
+            # Convert UUIDs to strings for JSON serialization
+            def convert_uuids(obj):
+                """Recursively convert UUID objects to strings."""
+                from datetime import datetime
+                if isinstance(obj, dict):
+                    return {k: convert_uuids(v) for k, v in obj.items()}
+                elif isinstance(obj, list):
+                    return [convert_uuids(item) for item in obj]
+                elif isinstance(obj, UUID):
+                    return str(obj)
+                elif isinstance(obj, datetime):
+                    return obj.isoformat()
+                else:
+                    return obj
+
+            broadcast_data = convert_uuids(result)
+
+            await connection_manager.broadcast_new_poll(
+                poll_data.conversation_id,
+                broadcast_data
+            )
+        except Exception as e:
+            print(f"[POLLS] Failed to broadcast poll creation: {e}")
+            # Don't fail the request if broadcast fails
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ [POLL] Failed to create poll: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create poll: {str(e)}"
+        )
 
 
 @router.post(
