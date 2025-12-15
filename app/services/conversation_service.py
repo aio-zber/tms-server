@@ -461,7 +461,8 @@ class ConversationService:
                 conversation_id=conversation_id,
                 updated_by=user_id,
                 name=name,
-                avatar_url=avatar_url
+                avatar_url=avatar_url,
+                updated_by_name=actor.name if actor else None
             )
         except Exception as ws_error:
             logger.warning(f"WebSocket broadcast failed (non-fatal): {ws_error}")

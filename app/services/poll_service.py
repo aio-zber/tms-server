@@ -3,13 +3,17 @@ Poll service containing business logic for poll operations.
 Handles poll creation, voting, closing, and results retrieval.
 """
 import uuid
+import logging
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 # UUID import removed - using str for ID types
 
+logger = logging.getLogger(__name__)
+
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func
+from sqlalchemy import select, and_, func, delete
+from sqlalchemy.exc import IntegrityError
 
 from app.models.poll import Poll, PollOption, PollVote
 from app.models.message import Message, MessageType
@@ -148,10 +152,10 @@ class PollService:
         option_ids: List[str]
     ) -> Dict[str, Any]:
         """
-        Cast or update vote(s) on a poll.
+        Cast or update vote(s) on a poll with idempotent logic.
 
-        For single-choice polls: Replaces existing vote
-        For multiple-choice polls: Toggles votes on specified options
+        Implements row-level locking and graceful constraint violation handling
+        to prevent race conditions from concurrent vote requests.
 
         Args:
             poll_id: Poll UUID
@@ -164,9 +168,9 @@ class PollService:
         Raises:
             HTTPException: If validation fails
         """
-        # Get poll with options
+        # Fetch poll with row-level lock to prevent concurrent modifications
         result = await self.db.execute(
-            select(Poll).where(Poll.id == poll_id)
+            select(Poll).where(Poll.id == poll_id).with_for_update()
         )
         poll = result.scalar_one_or_none()
 
@@ -176,7 +180,7 @@ class PollService:
                 detail="Poll not found"
             )
 
-        # Check if poll is closed or expired
+        # Validate poll is open
         if poll.expires_at and poll.expires_at < datetime.utcnow():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -201,7 +205,7 @@ class PollService:
                 detail="You are not a member of this conversation"
             )
 
-        # Verify all option_ids belong to this poll
+        # Validate all option_ids belong to this poll
         result = await self.db.execute(
             select(PollOption).where(
                 and_(
@@ -218,98 +222,66 @@ class PollService:
                 detail="Invalid option ID(s)"
             )
 
-        # Handle voting logic
-        if poll.multiple_choice:
-            # Multiple choice: Toggle votes on specified options
-            for option_id in option_ids:
-                # Check if user already voted for this option
-                result = await self.db.execute(
-                    select(PollVote).where(
-                        and_(
-                            PollVote.poll_id == poll_id,
-                            PollVote.option_id == option_id,
-                            PollVote.user_id == user_id
-                        )
-                    )
-                )
-                existing_vote = result.scalar_one_or_none()
+        # Validate multiple choice constraint
+        if not poll.multiple_choice and len(option_ids) > 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Single-choice poll allows only one option"
+            )
 
-                if existing_vote:
-                    # Remove vote (toggle off)
-                    await self.db.delete(existing_vote)
-                    # Flush to ensure delete is applied to database before adding new votes
-                    await self.db.flush()
-                else:
-                    # Add vote (toggle on) with auto-generated ID
-                    vote = PollVote(
-                        id=str(uuid.uuid4()),
-                        poll_id=poll_id,
-                        option_id=option_id,
-                        user_id=user_id
-                    )
-                    self.db.add(vote)
-                    # CRITICAL FIX: Flush and refresh to ensure vote.id is populated
-                    # Prevents unique constraint violations and ensures database state is consistent
-                    await self.db.flush()
-                    await self.db.refresh(vote)
-        else:
-            # Single choice: Replace existing vote
-            if len(option_ids) > 1:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Single-choice poll allows only one option"
-                )
-
-            # Check if user already voted for this exact option
-            result = await self.db.execute(
-                select(PollVote).where(
+        try:
+            # IDEMPOTENT OPERATION: Delete all existing votes by this user
+            # This prevents constraint violations and makes voting idempotent
+            await self.db.execute(
+                delete(PollVote).where(
                     and_(
                         PollVote.poll_id == poll_id,
-                        PollVote.user_id == user_id,
-                        PollVote.option_id == option_ids[0]
+                        PollVote.user_id == user_id
                     )
                 )
             )
-            existing_same_vote = result.scalar_one_or_none()
 
-            if existing_same_vote:
-                # User clicked the same option they already voted for - no change needed
-                # (Viber/Telegram behavior: can't unvote in single-choice polls)
-                pass
-            else:
-                # Remove all existing votes for this user on this poll
-                result = await self.db.execute(
-                    select(PollVote).where(
-                        and_(
-                            PollVote.poll_id == poll_id,
-                            PollVote.user_id == user_id
-                        )
-                    )
-                )
-                existing_votes = result.scalars().all()
-                for vote in existing_votes:
-                    await self.db.delete(vote)
+            # Flush deletes before inserts
+            await self.db.flush()
 
-                # CRITICAL FIX: Flush deletes before adding new vote
-                # Prevents unique constraint violations
-                await self.db.flush()
-
-                # Add new vote with auto-generated ID
+            # Insert new votes
+            for option_id in option_ids:
                 vote = PollVote(
                     id=str(uuid.uuid4()),
                     poll_id=poll_id,
-                    option_id=option_ids[0],
+                    option_id=option_id,
                     user_id=user_id
                 )
                 self.db.add(vote)
 
-                # CRITICAL FIX: Flush and refresh to ensure vote.id is populated
-                # Prevents unique constraint violations and ensures database state is consistent
-                await self.db.flush()
-                await self.db.refresh(vote)
+            # Flush inserts
+            await self.db.flush()
 
-        # Commit all changes atomically
-        await self.db.commit()
+            # Commit transaction
+            await self.db.commit()
+
+        except IntegrityError as e:
+            # Handle race condition gracefully - just return current state
+            await self.db.rollback()
+            logger.warning(f"Race condition detected in vote_on_poll for poll {poll_id}: {e}")
+
+            # Refetch poll and return current state
+            result = await self.db.execute(
+                select(Poll).where(Poll.id == poll_id)
+            )
+            poll = result.scalar_one()
+            return await self._build_poll_response(poll, user_id)
+
+        except Exception as e:
+            await self.db.rollback()
+            logger.error(f"Failed to vote on poll {poll_id}: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to vote on poll: {str(e)}"
+            )
+
+        # Refresh poll to get updated vote counts
+        await self.db.refresh(poll)
 
         # Return updated poll data
         return await self._build_poll_response(poll, user_id)
