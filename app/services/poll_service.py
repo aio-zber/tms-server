@@ -290,7 +290,7 @@ class PollService:
         self,
         poll_id: str,
         user_id: str
-    ) -> Dict[str, Any]:
+    ) -> "PollResponse":
         """
         Close a poll (only creator can close).
 
@@ -338,7 +338,7 @@ class PollService:
         self,
         poll_id: str,
         user_id: str
-    ) -> Dict[str, Any]:
+    ) -> "PollResponse":
         """
         Get poll details with results.
 
@@ -387,7 +387,7 @@ class PollService:
         self,
         poll: Poll,
         user_id: str
-    ) -> Dict[str, Any]:
+    ) -> "PollResponse":
         """
         Build poll response dict with vote counts and user votes.
         Uses Pydantic schema for proper camelCase serialization.
@@ -462,5 +462,5 @@ class PollService:
             user_votes=user_votes
         )
 
-        # Convert to dict with camelCase keys (uses serialization_alias)
-        return poll_response.model_dump(by_alias=True, mode='json')
+        # Return Pydantic model (FastAPI will serialize with camelCase aliases)
+        return poll_response

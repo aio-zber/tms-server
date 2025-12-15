@@ -199,7 +199,7 @@ async def vote_on_poll(
             broadcast_data = {
                 "poll_id": str(poll_id),
                 "user_id": str(user.id),
-                "poll": convert_uuids(poll_response)
+                "poll": convert_uuids(poll_response.model_dump(by_alias=True, mode='json'))
             }
 
             await connection_manager.broadcast_poll_vote(
@@ -210,11 +210,11 @@ async def vote_on_poll(
             print(f"[POLLS] Failed to broadcast vote: {e}")
             # Don't fail the request if broadcast fails
 
-    return {
-        "success": True,
-        "poll": poll_response,
-        "message": "Vote recorded successfully"
-    }
+    return PollVoteResponse(
+        success=True,
+        poll=poll_response,
+        message="Vote recorded successfully"
+    )
 
 
 @router.put(
