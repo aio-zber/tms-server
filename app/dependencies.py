@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import extract_token_from_header, SecurityException
 from app.core.jwt_validator import decode_nextauth_jwt, JWTValidationError
+from app.core.tms_client import TMSAPIException
 
 
 async def get_current_user(
@@ -181,15 +182,31 @@ async def get_current_user(
             detail=str(e),
             headers={"WWW-Authenticate": "Bearer"},
         )
+    except JWTValidationError as e:
+        # Return 401 for JWT-specific errors (expired, invalid signature, etc.)
+        print(f"🔒 [AUTH] JWT validation failed: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(e),
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    except TMSAPIException as e:
+        # TMS API failures during user sync should be 401
+        print(f"⚠️ [AUTH] TMS API error during user sync: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication service unavailable",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     except Exception as e:
-        # Log unexpected errors but don't expose internal details
+        # Only truly unexpected errors should be 500
         import traceback
         error_traceback = traceback.format_exc()
         print(f"❌ [AUTH] Unexpected authentication error: {type(e).__name__}: {str(e)}")
         print(f"📋 [AUTH] Full traceback:\n{error_traceback}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Authentication failed: {type(e).__name__}",
+            detail="Internal authentication error",
         )
 
 
