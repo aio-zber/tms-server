@@ -718,7 +718,8 @@ class ConnectionManager:
         conversation_id: str,
         updated_by: str,
         name: Optional[str] = None,
-        avatar_url: Optional[str] = None
+        avatar_url: Optional[str] = None,
+        updated_by_name: Optional[str] = None
     ):
         """
         Broadcast conversation details update to members.
@@ -730,6 +731,7 @@ class ConnectionManager:
             updated_by: User ID who updated the conversation
             name: New conversation name (if changed)
             avatar_url: New avatar URL (if changed)
+            updated_by_name: Name of user who updated (for toast display)
         """
         room = f"conversation:{conversation_id}"
         logger.info(f"[broadcast_conversation_updated] Broadcasting to room: {room}")
@@ -740,6 +742,9 @@ class ConnectionManager:
             'updated_by': str(updated_by),
             'timestamp': str(asyncio.get_event_loop().time())
         }
+
+        if updated_by_name is not None:
+            update_data['updated_by_name'] = updated_by_name
 
         if name is not None:
             update_data['name'] = name
