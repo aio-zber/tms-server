@@ -389,7 +389,7 @@ class PollService:
         user_id: str
     ) -> "PollResponse":
         """
-        Build poll response dict with vote counts and user votes.
+        Build poll response with vote counts and user votes.
         Uses Pydantic schema for proper camelCase serialization.
 
         Args:
@@ -397,7 +397,7 @@ class PollService:
             user_id: Current user UUID
 
         Returns:
-            Poll response dict (with camelCase keys)
+            PollResponse: Pydantic model (convert with .model_dump() if embedding in dicts)
         """
         from app.schemas.poll import PollResponse, PollOptionResponse
 

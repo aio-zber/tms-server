@@ -352,7 +352,7 @@ class MessageService:
                     # Use PollService to build complete poll response with vote counts
                     poll_service = PollService(self.db)
                     poll_data = await poll_service._build_poll_response(poll, current_user_id)
-                    message_dict["poll"] = poll_data
+                    message_dict["poll"] = poll_data.model_dump(by_alias=True, mode='json')
                     print(f"[ENRICH] ✅ Poll data loaded for message {message.id}")
                 else:
                     print(f"[ENRICH] ⚠️ WARNING: Message {message.id} is type POLL but no poll found!")
@@ -743,7 +743,7 @@ class MessageService:
                     if poll:
                         poll_service = PollService(self.db)
                         poll_data = await poll_service._build_poll_response(poll, user_id)
-                        message_dict["poll"] = poll_data
+                        message_dict["poll"] = poll_data.model_dump(by_alias=True, mode='json')
                         print(f"[MESSAGE_SERVICE] ✅ Poll data loaded for message {message.id}")
                     else:
                         print(f"[MESSAGE_SERVICE] ⚠️ WARNING: Message {message.id} is type POLL but no poll found!")
