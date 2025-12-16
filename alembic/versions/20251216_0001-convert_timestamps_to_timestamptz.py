@@ -1,7 +1,7 @@
 """Convert timestamp columns to TIMESTAMPTZ and fix corrupt data
 
 Revision ID: timestamptz_001
-Revises: cuid_support_001
+Revises: 20241204_0001
 Create Date: 2025-12-16 00:01:00.000000
 
 This migration converts all TIMESTAMP columns to TIMESTAMPTZ (timezone-aware)
@@ -25,7 +25,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'timestamptz_001'
-down_revision: Union[str, None] = 'cuid_support_001'
+down_revision: Union[str, None] = '20241204_0001'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
