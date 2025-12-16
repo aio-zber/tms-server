@@ -6,6 +6,8 @@ from datetime import datetime
 from typing import List, Optional, Tuple
 # UUID import removed - using str for ID types
 
+from app.utils.datetime_utils import utc_now
+
 from sqlalchemy import select, and_, or_, func, desc
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -398,7 +400,7 @@ class MessageRepository(BaseRepository[Message]):
         Returns:
             Deleted message or None
         """
-        return await self.update(message_id, deleted_at=datetime.utcnow())
+        return await self.update(message_id, deleted_at=utc_now())
 
     async def get_unread_count(
         self,
@@ -527,7 +529,7 @@ class MessageStatusRepository(BaseRepository[MessageStatus]):
                     f"old_status={existing_status.status}, new_status={status}"
                 )
                 existing_status.status = status
-                existing_status.timestamp = datetime.utcnow()
+                existing_status.timestamp = utc_now()
                 await self.db.flush()
                 return existing_status
             else:
@@ -540,7 +542,7 @@ class MessageStatusRepository(BaseRepository[MessageStatus]):
                     message_id=message_id,
                     user_id=user_id,
                     status=status,
-                    timestamp=datetime.utcnow()
+                    timestamp=utc_now()
                 )
                 self.db.add(new_status)
                 await self.db.flush()

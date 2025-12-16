@@ -6,6 +6,8 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
 # UUID import removed - using str for ID types
 
+from app.utils.datetime_utils import utc_now, to_iso_utc
+
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -105,7 +107,7 @@ class MessageService:
         conversation = result.scalar_one_or_none()
 
         if conversation:
-            conversation.updated_at = datetime.utcnow()
+            conversation.updated_at = utc_now()
             await self.db.flush()
 
     def _compute_message_status(
@@ -205,17 +207,17 @@ class MessageService:
             "metadata_json": message.metadata_json,
             "reply_to_id": message.reply_to_id,
             "is_edited": message.is_edited,
-            # Convert datetime objects to ISO format strings for JSON serialization
-            "created_at": message.created_at.isoformat() if message.created_at else None,
-            "updated_at": message.updated_at.isoformat() if message.updated_at else None,
-            "deleted_at": message.deleted_at.isoformat() if message.deleted_at else None,
+            # Convert datetime objects to ISO format strings with 'Z' suffix (UTC indicator)
+            "created_at": to_iso_utc(message.created_at),
+            "updated_at": to_iso_utc(message.updated_at),
+            "deleted_at": to_iso_utc(message.deleted_at),
             "reactions": [
                 {
                     "id": r.id,
                     "message_id": r.message_id,
                     "user_id": r.user_id,
                     "emoji": r.emoji,
-                    "created_at": r.created_at.isoformat() if r.created_at else None
+                    "created_at": to_iso_utc(r.created_at)
                 }
                 for r in message.reactions
             ],
@@ -224,7 +226,7 @@ class MessageService:
                     "message_id": s.message_id,
                     "user_id": s.user_id,
                     "status": s.status,
-                    "timestamp": s.timestamp.isoformat() if s.timestamp else None
+                    "timestamp": to_iso_utc(s.timestamp)
                 }
                 for s in message.statuses
             ],
@@ -314,10 +316,10 @@ class MessageService:
                             "metadata_json": message.reply_to.metadata_json or {},
                             "reply_to_id": message.reply_to.reply_to_id,
                             "is_edited": message.reply_to.is_edited,
-                            # Convert datetime objects to ISO format strings for JSON serialization
-                            "created_at": message.reply_to.created_at.isoformat() if message.reply_to.created_at else None,
-                            "updated_at": message.reply_to.updated_at.isoformat() if message.reply_to.updated_at else None,
-                            "deleted_at": message.reply_to.deleted_at.isoformat() if message.reply_to.deleted_at else None,
+                            # Convert datetime objects to ISO format strings with 'Z' suffix
+                            "created_at": to_iso_utc(message.reply_to.created_at),
+                            "updated_at": to_iso_utc(message.reply_to.updated_at),
+                            "deleted_at": to_iso_utc(message.reply_to.deleted_at),
                             "reactions": [],
                             "statuses": [],
                             "sender": None,
@@ -518,16 +520,16 @@ class MessageService:
         # Enrich with TMS user data (pass sender_id as user_id for status computation)
         enriched_message = await self._enrich_message_with_user_data(message, sender_id)
 
-        # Convert datetimes to strings for JSON serialization
+        # Convert datetimes to strings for JSON serialization with 'Z' suffix
         def convert_to_json_serializable(obj):
-            """Recursively convert datetime objects to strings for JSON serialization."""
+            """Recursively convert datetime objects to UTC ISO strings with 'Z' suffix."""
             from datetime import datetime
             if isinstance(obj, dict):
                 return {k: convert_to_json_serializable(v) for k, v in obj.items()}
             elif isinstance(obj, list):
                 return [convert_to_json_serializable(item) for item in obj]
             elif isinstance(obj, datetime):
-                return obj.isoformat()
+                return to_iso_utc(obj)
             else:
                 return obj
         
@@ -845,7 +847,7 @@ class MessageService:
             message_id,
             content=new_content,
             is_edited=True,
-            updated_at=datetime.utcnow()
+            updated_at=utc_now()
         )
 
         await self.db.commit()
@@ -1018,8 +1020,8 @@ class MessageService:
             "message_id": str(reaction.message_id),
             "user_id": str(reaction.user_id),
             "emoji": reaction.emoji,
-            # Convert datetime to ISO format string for JSON serialization
-            "created_at": reaction.created_at.isoformat() if reaction.created_at else None
+            # Convert datetime to UTC ISO format string with 'Z' suffix
+            "created_at": to_iso_utc(reaction.created_at)
         }
 
         # Broadcast reaction added via WebSocket
@@ -1401,7 +1403,7 @@ class MessageService:
                     Message.deleted_at.is_(None)
                 )
             )
-            .values(deleted_at=datetime.utcnow())
+            .values(deleted_at=utc_now())
         )
 
         await self.db.commit()
