@@ -65,7 +65,7 @@ class PollService:
         options: List[Dict[str, Any]],
         multiple_choice: bool = False,
         expires_at: Optional[datetime] = None
-    ) -> Dict[str, Any]:
+    ) -> "CreatePollResponse":
         """
         Create a new poll attached to a message.
 
@@ -132,18 +132,31 @@ class PollService:
         for opt in poll_options:
             await self.db.refresh(opt)
 
-        # Return poll data with message
-        return {
-            "poll": await self._build_poll_response(poll, user_id),
-            "message": {
-                "id": message.id,
-                "conversation_id": message.conversation_id,
-                "sender_id": message.sender_id,
-                "content": message.content,
-                "type": message.type.value,
-                "created_at": message.created_at
-            }
-        }
+        # Import schemas
+        from app.schemas.poll import CreatePollResponse
+        from app.schemas.message import MessageResponse
+
+        # Build MessageResponse model (not dict) for proper camelCase serialization
+        message_response = MessageResponse(
+            id=message.id,
+            conversation_id=message.conversation_id,
+            sender_id=message.sender_id,
+            content=message.content,
+            type=message.type,  # MessageType enum
+            metadata_json={},
+            reply_to_id=None,
+            is_edited=False,
+            created_at=message.created_at,
+            updated_at=message.updated_at,
+            deleted_at=None,
+            status='sent'
+        )
+
+        # Return Pydantic model (FastAPI auto-serializes with camelCase)
+        return CreatePollResponse(
+            poll=await self._build_poll_response(poll, user_id),
+            message=message_response
+        )
 
     async def vote_on_poll(
         self,
