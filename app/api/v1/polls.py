@@ -88,7 +88,8 @@ async def create_poll(
                 else:
                     return obj
 
-            broadcast_data = convert_uuids(result)
+            # Serialize Pydantic model to camelCase dict BEFORE broadcasting
+            broadcast_data = convert_uuids(result.model_dump(by_alias=True, mode='json'))
 
             await connection_manager.broadcast_new_poll(
                 poll_data.conversation_id,
