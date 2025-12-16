@@ -72,7 +72,7 @@ async def get_current_user(
         # Telegram/Messenger pattern: Sync on first login + periodic refresh
         from app.models.user import User
         from app.repositories.user_repo import UserRepository
-        from app.core.tms_client import tms_client, TMSAPIException
+        from app.core.tms_client import tms_client
         from sqlalchemy import select
         from datetime import datetime, timedelta
 
