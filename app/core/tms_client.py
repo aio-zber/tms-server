@@ -157,9 +157,14 @@ class TMSClient:
             user = await tms_client.get_current_user_from_session(session_token)
             ```
         """
-        # Use the session token as Bearer token
-        # GCGC's /api/v1/users/me endpoint accepts both JWT and session tokens
-        return await self.get_current_user_from_tms(token=session_token, use_cache=False)
+        # Send session token as cookie (NextAuth expects it in cookies, not as Bearer token)
+        # Try all possible NextAuth cookie names (production uses __Secure prefix)
+        cookies = {
+            "next-auth.session-token": session_token,
+            "__Secure-next-auth.session-token": session_token,
+            "__Host-next-auth.session-token": session_token
+        }
+        return await self.get_current_user_from_tms(cookies=cookies, use_cache=False)
 
     async def get_current_user_from_tms(
         self,
