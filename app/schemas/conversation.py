@@ -6,6 +6,8 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 # UUID import removed - using str for ID types
 
+from app.utils.datetime_utils import utc_now
+
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 from app.models.conversation import ConversationType, ConversationRole
@@ -127,7 +129,7 @@ class ConversationSettingsUpdate(BaseModel):
         """Validate mute_until is in the future if is_muted is True."""
         is_muted = info.data.get("is_muted")
 
-        if is_muted and v and v < datetime.utcnow():
+        if is_muted and v and v < utc_now():
             raise ValueError("mute_until must be in the future")
 
         if is_muted is False and v:

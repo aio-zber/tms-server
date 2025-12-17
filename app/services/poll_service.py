@@ -8,6 +8,8 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 # UUID import removed - using str for ID types
 
+from app.utils.datetime_utils import utc_now
+
 logger = logging.getLogger(__name__)
 
 from fastapi import HTTPException, status
@@ -194,7 +196,7 @@ class PollService:
             )
 
         # Validate poll is open
-        if poll.expires_at and poll.expires_at < datetime.utcnow():
+        if poll.expires_at and poll.expires_at < utc_now():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Poll has expired"
@@ -342,7 +344,7 @@ class PollService:
             )
 
         # Close poll by setting expires_at to now
-        poll.expires_at = datetime.utcnow()
+        poll.expires_at = utc_now()
         await self.db.commit()
 
         return await self._build_poll_response(poll, user_id)
@@ -459,7 +461,7 @@ class PollService:
             option_responses.append(option_response)
 
         # Check if poll is closed
-        is_closed = poll.expires_at is not None and poll.expires_at < datetime.utcnow()
+        is_closed = poll.expires_at is not None and poll.expires_at < utc_now()
 
         # Use Pydantic schema for proper camelCase serialization
         poll_response = PollResponse(
