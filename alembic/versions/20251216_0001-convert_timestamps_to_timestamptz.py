@@ -147,6 +147,16 @@ def upgrade() -> None:
     """)
     print("  ✅ conversation_members table converted")
 
+    # Users table
+    print("  🔄 Converting users table...")
+    op.execute("""
+        ALTER TABLE users
+          ALTER COLUMN last_synced_at TYPE TIMESTAMPTZ USING last_synced_at AT TIME ZONE 'UTC',
+          ALTER COLUMN created_at TYPE TIMESTAMPTZ USING created_at AT TIME ZONE 'UTC',
+          ALTER COLUMN updated_at TYPE TIMESTAMPTZ USING updated_at AT TIME ZONE 'UTC';
+    """)
+    print("  ✅ users table converted")
+
     # Calls table (if exists)
     # Check if table exists first
     result = connection.execute(
@@ -263,6 +273,16 @@ def downgrade() -> None:
           ALTER COLUMN last_read_at TYPE TIMESTAMP USING last_read_at AT TIME ZONE 'UTC';
     """)
     print("✅ conversation_members table reverted")
+
+    # Revert users table
+    print("🔄 Reverting users table...")
+    op.execute("""
+        ALTER TABLE users
+          ALTER COLUMN last_synced_at TYPE TIMESTAMP USING last_synced_at AT TIME ZONE 'UTC',
+          ALTER COLUMN created_at TYPE TIMESTAMP USING created_at AT TIME ZONE 'UTC',
+          ALTER COLUMN updated_at TYPE TIMESTAMP USING updated_at AT TIME ZONE 'UTC';
+    """)
+    print("✅ users table reverted")
 
     # Revert calls table (if exists)
     connection = op.get_bind()
