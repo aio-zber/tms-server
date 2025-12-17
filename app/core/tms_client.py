@@ -198,30 +198,41 @@ class TMSClient:
         """
         async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=False) as client:
             try:
+                import logging
+                logger = logging.getLogger(__name__)
+
                 headers = {"Content-Type": "application/json"}
+                url = f"{self.base_url}/api/v1/users/me"
 
                 # Priority 1: Use session cookies if provided (for NextAuth)
                 # Priority 2: Use token as Bearer auth (for JWT tokens)
                 if cookies:
                     # Session-based auth: Forward cookies to TMS
+                    logger.info(f"🔐 TMS Client: Calling GCGC with session cookies")
+                    logger.info(f"🔐 TMS Client: URL: {url}")
+                    logger.info(f"🔐 TMS Client: Cookie names: {list(cookies.keys())}")
                     response = await client.get(
-                        f"{self.base_url}/api/v1/users/me",
+                        url,
                         headers=headers,
                         cookies=cookies
                     )
+                    logger.info(f"🔐 TMS Client: GCGC response status: {response.status_code}")
                 elif token:
                     # Token-based auth: Use Bearer token
+                    logger.info(f"🔐 TMS Client: Calling GCGC with Bearer token")
                     headers["Authorization"] = f"Bearer {token}"
                     response = await client.get(
-                        f"{self.base_url}/api/v1/users/me",
+                        url,
                         headers=headers
                     )
+                    logger.info(f"🔐 TMS Client: GCGC response status: {response.status_code}")
                 else:
                     raise TMSAPIException("Either token or cookies must be provided")
 
                 # Check for redirects (common when session is invalid)
                 if response.status_code in [301, 302, 303, 307, 308]:
                     location = response.headers.get("location", "")
+                    logger.warning(f"🔐 TMS Client: GCGC redirected to: {location}")
                     if "signin" in location.lower() or "login" in location.lower():
                         raise TMSAPIException("Session expired or invalid - redirected to login")
                     raise TMSAPIException(f"Unexpected redirect to: {location}")
