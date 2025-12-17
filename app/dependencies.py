@@ -6,6 +6,8 @@ from typing import Optional
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.utils.datetime_utils import utc_now
+
 from app.core.database import get_db
 from app.core.security import extract_token_from_header, SecurityException
 from app.core.jwt_validator import decode_nextauth_jwt, JWTValidationError
@@ -101,7 +103,7 @@ async def get_current_user(
         elif not local_user.last_synced_at:
             should_sync = True
             sync_reason = "missing sync timestamp"
-        elif datetime.utcnow() - local_user.last_synced_at > timedelta(hours=24):
+        elif utc_now() - local_user.last_synced_at > timedelta(hours=24):
             should_sync = True
             sync_reason = "stale data (>24h)"
 

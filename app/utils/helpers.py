@@ -8,6 +8,8 @@ from typing import Dict, Any, Optional, List
 import hashlib
 import json
 
+from app.utils.datetime_utils import utc_now
+
 
 def generate_cache_key(*parts: str) -> str:
     """
@@ -236,7 +238,7 @@ def build_notification_payload(
         "title": title,
         "body": body,
         "data": data or {},
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": utc_now().isoformat()
     }
 
 
@@ -297,10 +299,10 @@ def calculate_time_ago(dt: datetime) -> str:
         Time ago string (e.g., "2 hours ago")
 
     Example:
-        >>> calculate_time_ago(datetime.utcnow() - timedelta(hours=2))
+        >>> calculate_time_ago(utc_now() - timedelta(hours=2))
         '2 hours ago'
     """
-    now = datetime.utcnow()
+    now = utc_now()
     diff = now - dt
 
     seconds = diff.total_seconds()

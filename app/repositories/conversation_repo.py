@@ -6,6 +6,8 @@ from datetime import datetime
 from typing import Optional, List, Tuple, Dict, Any
 # UUID import removed - using str for ID types
 
+from app.utils.datetime_utils import utc_now
+
 from sqlalchemy import select, func, and_, or_, desc, delete, literal, case, literal_column
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload, joinedload, aliased
@@ -136,7 +138,7 @@ class ConversationRepository(BaseRepository[Conversation]):
             conversation_id=conversation.id,
             user_id=creator_id,
             role=ConversationRole.ADMIN,
-            last_read_at=datetime.utcnow()
+            last_read_at=utc_now()
         )
         self.db.add(creator_member)
 
@@ -225,7 +227,7 @@ class ConversationRepository(BaseRepository[Conversation]):
             updates['avatar_url'] = avatar_url
 
         if updates:
-            updates['updated_at'] = datetime.utcnow()
+            updates['updated_at'] = utc_now()
             return await self.update(conversation_id, **updates)
 
         return await self.get_with_relations(conversation_id)
@@ -623,7 +625,7 @@ class ConversationMemberRepository:
         if not member:
             return None
 
-        member.last_read_at = datetime.utcnow()
+        member.last_read_at = utc_now()
         await self.db.flush()
         await self.db.refresh(member)
         return member

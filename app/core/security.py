@@ -8,6 +8,8 @@ from typing import Optional, Dict, Any
 from fastapi import HTTPException, status
 from app.config import settings
 
+from app.utils.datetime_utils import utc_now
+
 
 class SecurityException(HTTPException):
     """Custom exception for security-related errors."""
@@ -44,11 +46,11 @@ def create_access_token(
     to_encode = data.copy()
 
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = utc_now() + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(hours=settings.jwt_expiration_hours)
+        expire = utc_now() + timedelta(hours=settings.jwt_expiration_hours)
 
-    to_encode.update({"exp": expire, "iat": datetime.utcnow()})
+    to_encode.update({"exp": expire, "iat": utc_now()})
 
     encoded_jwt = jwt.encode(
         to_encode,

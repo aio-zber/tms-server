@@ -6,6 +6,8 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 # UUID import removed - using str for ID types
 
+from app.utils.datetime_utils import utc_now
+
 from sqlalchemy import select, or_, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert
@@ -115,7 +117,7 @@ class UserRepository(BaseRepository[User]):
             "reports_to_id": tms_data.get("reportsToId") or tms_data.get("reports_to_id"),
             "is_active": tms_data.get("isActive", tms_data.get("is_active", True)),
             "is_leader": tms_data.get("isLeader", tms_data.get("is_leader", False)),
-            "last_synced_at": datetime.utcnow(),
+            "last_synced_at": utc_now(),
         }
 
         print(f"[USER_REPO] 👤 Syncing user: {tms_user_id}, username='{tms_data.get('username')}', name='{full_name}', first='{first_name}', last='{last_name}'")
@@ -126,7 +128,7 @@ class UserRepository(BaseRepository[User]):
             index_elements=["tms_user_id"],  # Unique constraint on tms_user_id
             set_={
                 **{k: v for k, v in user_data.items() if k not in ["id", "tms_user_id"]},  # Don't update ID
-                "updated_at": datetime.utcnow(),
+                "updated_at": utc_now(),
             }
         ).returning(User)
 
@@ -273,7 +275,7 @@ class UserRepository(BaseRepository[User]):
         Returns:
             List of User instances needing sync
         """
-        threshold_time = datetime.utcnow() - datetime.timedelta(hours=hours_threshold)
+        threshold_time = utc_now() - datetime.timedelta(hours=hours_threshold)
 
         result = await self.db.execute(
             select(User)

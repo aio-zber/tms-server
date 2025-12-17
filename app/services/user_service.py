@@ -8,6 +8,8 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.utils.datetime_utils import utc_now
+
 from app.repositories.user_repo import UserRepository
 from app.core.tms_client import tms_client, TMSAPIException
 from app.core.cache import cache_user_data, get_cached_user_data, invalidate_user_cache
@@ -169,7 +171,7 @@ class UserService:
             user = await self.user_repo.get_by_tms_user_id(tms_user_id)
             if user and user.last_synced_at:
                 # Skip if synced within last 10 minutes
-                if datetime.utcnow() - user.last_synced_at < timedelta(minutes=10):
+                if utc_now() - user.last_synced_at < timedelta(minutes=10):
                     logger.info(f"User {tms_user_id} recently synced, skipping")
                     return user
 
