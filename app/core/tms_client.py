@@ -208,24 +208,27 @@ class TMSClient:
                 # Priority 2: Use token as Bearer auth (for JWT tokens)
                 if cookies:
                     # Session-based auth: Forward cookies to TMS
-                    logger.info(f"🔐 TMS Client: Calling GCGC with session cookies")
-                    logger.info(f"🔐 TMS Client: URL: {url}")
-                    logger.info(f"🔐 TMS Client: Cookie names: {list(cookies.keys())}")
+                    logger.warning(f"🔐 TMS Client: Calling GCGC with session cookies")
+                    logger.warning(f"🔐 TMS Client: URL: {url}")
+                    logger.warning(f"🔐 TMS Client: Cookie names: {list(cookies.keys())}")
+                    logger.warning(f"🔐 TMS Client: First 20 chars of first cookie value: {list(cookies.values())[0][:20] if cookies.values() else 'NONE'}...")
                     response = await client.get(
                         url,
                         headers=headers,
                         cookies=cookies
                     )
-                    logger.info(f"🔐 TMS Client: GCGC response status: {response.status_code}")
+                    logger.warning(f"🔐 TMS Client: GCGC response status: {response.status_code}")
+                    logger.warning(f"🔐 TMS Client: Response headers: {dict(response.headers)}")
                 elif token:
                     # Token-based auth: Use Bearer token
-                    logger.info(f"🔐 TMS Client: Calling GCGC with Bearer token")
+                    logger.warning(f"🔐 TMS Client: Calling GCGC with Bearer token")
+                    logger.warning(f"🔐 TMS Client: First 20 chars of token: {token[:20] if token else 'NONE'}...")
                     headers["Authorization"] = f"Bearer {token}"
                     response = await client.get(
                         url,
                         headers=headers
                     )
-                    logger.info(f"🔐 TMS Client: GCGC response status: {response.status_code}")
+                    logger.warning(f"🔐 TMS Client: GCGC response status: {response.status_code}")
                 else:
                     raise TMSAPIException("Either token or cookies must be provided")
 
