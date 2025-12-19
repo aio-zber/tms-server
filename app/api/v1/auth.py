@@ -184,33 +184,36 @@ async def sso_login(
     gcgc_session_token: Optional[str] = Header(None, alias="X-GCGC-Session-Token")
 ):
     """
-    SSO login using GCGC NextAuth session token.
+    SSO login using GCGC NextAuth JWT token.
 
     This endpoint enables seamless Single Sign-On (SSO) from GCGC to TMS.
-    It accepts a GCGC NextAuth session token, validates it with GCGC,
-    and returns a TMS JWT token for API access.
+    It accepts a GCGC NextAuth JWT token (not a session cookie), decodes it
+    locally using the shared NEXTAUTH_SECRET, and returns user data.
 
     **Flow:**
-    1. Receive GCGC session token via header
-    2. Validate token with GCGC API (/api/v1/users/me)
-    3. Sync user data to local database
-    4. Return TMS JWT token
+    1. Receive GCGC JWT token via X-GCGC-Session-Token header
+    2. Decode and validate JWT locally using NEXTAUTH_SECRET (no API call)
+    3. Extract user data from JWT payload
+    4. Sync user data to local database
+    5. Return the GCGC JWT token for API access
+
+    **Important:** The token is a JWT signed with NEXTAUTH_SECRET,
+    not a NextAuth session cookie. It's decoded locally, not validated with GCGC.
 
     **Headers:**
     ```
-    X-GCGC-Session-Token: <nextauth-session-token>
+    X-GCGC-Session-Token: <jwt-token-from-gcgc-sso>
     ```
 
-    **Returns:** TMS JWT token and user profile
+    **Returns:** GCGC JWT token and user profile
 
     **Errors:**
-    - 401: Invalid or missing GCGC session token
-    - 503: GCGC service unavailable
+    - 401: Invalid, expired, or missing JWT token
     - 500: Internal server error
 
     **Usage:**
-    This endpoint is called automatically by TMS-Client when it detects
-    a GCGC session cookie, enabling transparent authentication.
+    This endpoint is called automatically by TMS-Client after GCGC SSO redirect,
+    enabling transparent authentication without additional API calls to GCGC.
     """
     if not gcgc_session_token:
         raise HTTPException(
@@ -223,17 +226,40 @@ async def sso_login(
         )
 
     try:
-        # Validate GCGC session token by calling GCGC API
-        # This uses the session token to authenticate and get user data
-        tms_user_data = await tms_client.get_current_user_from_session(gcgc_session_token)
+        import logging
+        logger = logging.getLogger(__name__)
 
-        # Extract user ID
-        tms_user_id = tms_user_data.get("id")
+        # Decode and validate GCGC JWT token locally using shared NEXTAUTH_SECRET
+        # This is faster and more reliable than calling GCGC API
+        logger.info(f"🔐 SSO Login: Received GCGC JWT token (length: {len(gcgc_session_token)})")
+        logger.debug(f"🔐 SSO Login: Token prefix: {gcgc_session_token[:50]}...")
+
+        from app.core.security import decode_nextauth_token, SecurityException
+
+        jwt_payload = decode_nextauth_token(gcgc_session_token)
+        logger.info(f"✅ SSO Login: JWT decoded successfully for user {jwt_payload.get('email')}")
+        logger.debug(f"🔐 SSO Login: JWT payload: {jwt_payload}")
+
+        # Extract user data from JWT payload
+        tms_user_id = jwt_payload.get("id")
         if not tms_user_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="GCGC user data does not contain user ID"
+                detail="JWT token does not contain user ID"
             )
+
+        # Build user data dictionary from JWT claims
+        # JWT tokens from GCGC contain: id, email, name, role, hierarchyLevel, image, iat, exp
+        tms_user_data = {
+            "id": jwt_payload.get("id"),
+            "email": jwt_payload.get("email"),
+            "name": jwt_payload.get("name"),
+            "username": jwt_payload.get("email", "").split("@")[0] if jwt_payload.get("email") else "user",
+            "role": jwt_payload.get("role", "MEMBER"),
+            "hierarchyLevel": jwt_payload.get("hierarchyLevel"),
+            "image": jwt_payload.get("image"),
+            "isActive": True,  # JWT tokens are only issued for active users
+        }
 
         # Sync user to local database
         user_repo = UserRepository(db)
@@ -254,8 +280,23 @@ async def sso_login(
             message="SSO login successful"
         )
 
+    except SecurityException as e:
+        # JWT decoding failed (invalid signature, expired token, etc.)
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"❌ SSO Login: JWT decode failed: {str(e)}")
+
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "error": "invalid_jwt_token",
+                "message": str(e),
+                "hint": "Your GCGC session has expired. Please log in again."
+            }
+        )
     except TMSAPIException as e:
-        # GCGC session validation failed
+        # This should not happen anymore since we're not calling GCGC API
+        # Kept for backwards compatibility
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED if "401" in str(e) or "Unauthorized" in str(e) else status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={
