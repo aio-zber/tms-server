@@ -117,8 +117,7 @@ class UserRepository(BaseRepository[User]):
             "reports_to_id": tms_data.get("reportsToId") or tms_data.get("reports_to_id"),
             "is_active": tms_data.get("isActive", tms_data.get("is_active", True)),
             "is_leader": tms_data.get("isLeader", tms_data.get("is_leader", False)),
-            # TEMP: Remove timezone until Railway DB is migrated to TIMESTAMPTZ
-            "last_synced_at": utc_now().replace(tzinfo=None),
+            "last_synced_at": utc_now(),
         }
 
         print(f"[USER_REPO] 👤 Syncing user: {tms_user_id}, username='{tms_data.get('username')}', name='{full_name}', first='{first_name}', last='{last_name}'")
@@ -129,8 +128,7 @@ class UserRepository(BaseRepository[User]):
             index_elements=["tms_user_id"],  # Unique constraint on tms_user_id
             set_={
                 **{k: v for k, v in user_data.items() if k not in ["id", "tms_user_id"]},  # Don't update ID
-                # TEMP: Remove timezone until Railway DB is migrated to TIMESTAMPTZ
-                "updated_at": utc_now().replace(tzinfo=None),
+                "updated_at": utc_now(),
             }
         ).returning(User)
 
