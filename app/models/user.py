@@ -7,7 +7,7 @@ All authentication and user identity management is handled by TMS.
 from datetime import datetime
 from typing import TYPE_CHECKING, List
 
-from sqlalchemy import Index, String, JSON, Boolean, func
+from sqlalchemy import Index, String, JSON, Boolean, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, UUIDMixin
@@ -164,18 +164,21 @@ class User(Base, UUIDMixin):
 
     # Synchronization tracking
     last_synced_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
         nullable=True,
         doc="Last time user data was synced from TMS"
     )
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
         server_default=func.now(),
         nullable=False,
         doc="When the user was first created locally"
     )
 
     updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,

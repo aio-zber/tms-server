@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, List
 
 from sqlalchemy import (
     CheckConstraint,
+    DateTime,
     ForeignKey,
     Index,
     String,
@@ -111,6 +112,7 @@ class Message(Base, UUIDMixin):
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
         server_default=func.now(),
         nullable=False,
         index=True,
@@ -118,11 +120,13 @@ class Message(Base, UUIDMixin):
     )
 
     updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
         nullable=True,
         doc="When the message was last updated"
     )
 
     deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
         nullable=True,
         doc="Soft delete timestamp"
     )
@@ -197,6 +201,7 @@ class MessageStatus(Base):
 
     # Timestamp
     timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
         server_default=func.now(),
         nullable=False,
         doc="When the status was recorded"
@@ -248,6 +253,7 @@ class MessageReaction(Base, UUIDMixin):
 
     # Timestamp
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
         server_default=func.now(),
         nullable=False,
         doc="When the reaction was added"
