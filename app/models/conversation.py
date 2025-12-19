@@ -7,7 +7,7 @@ import enum
 from datetime import datetime
 from typing import TYPE_CHECKING, List
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, String, Enum as SQLEnum, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, Enum as SQLEnum, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, UUIDMixin, TimestampMixin
@@ -135,12 +135,14 @@ class ConversationMember(Base):
 
     # Membership tracking
     joined_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
         server_default=func.now(),
         nullable=False,
         doc="When the user joined the conversation"
     )
 
     last_read_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
         nullable=True,
         doc="Last time the user read messages in this conversation"
     )
