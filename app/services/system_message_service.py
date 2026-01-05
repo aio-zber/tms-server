@@ -276,13 +276,18 @@ class SystemMessageService:
         """
         # Use MessageRepository to auto-generate ID
         message_repo = MessageRepository(db)
+
+        # Get next sequence number for deterministic ordering (Telegram/WhatsApp pattern)
+        sequence_number = await message_repo.get_next_sequence_number(conversation_id)
+
         message = await message_repo.create(
             conversation_id=conversation_id,
             sender_id=sender_id,
             content=content,
             type=MessageType.SYSTEM,
             metadata_json=metadata,
-            is_edited=False
+            is_edited=False,
+            sequence_number=sequence_number
         )
 
         # CRITICAL FIX: Flush but DON'T commit
