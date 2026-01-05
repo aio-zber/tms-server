@@ -452,7 +452,7 @@ class MessageService:
 
         # CRITICAL DEBUG: Check if created_at is in the past
         from datetime import datetime, timezone
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = datetime.now(timezone.utc)  # Keep timezone-aware (don't remove tzinfo)
         time_diff = (now - message.created_at).total_seconds()
         print(f"[MESSAGE_SERVICE] ⏰ Time difference from now: {time_diff} seconds")
         if time_diff > 60:
