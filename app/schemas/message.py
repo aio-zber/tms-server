@@ -182,6 +182,7 @@ class MessageResponse(BaseModel):
     metadata_json: Dict[str, Any] = Field(default_factory=dict, serialization_alias="metadataJson")
     reply_to_id: Optional[str] = Field(None, serialization_alias="replyToId")
     is_edited: bool = Field(serialization_alias="isEdited")
+    sequence_number: int = Field(..., serialization_alias="sequenceNumber", description="Monotonically increasing sequence number per conversation")
     created_at: datetime = Field(serialization_alias="createdAt")
     updated_at: Optional[datetime] = Field(None, serialization_alias="updatedAt")
     deleted_at: Optional[datetime] = Field(None, serialization_alias="deletedAt")
@@ -211,6 +212,7 @@ class MessageResponse(BaseModel):
                 "metadataJson": {},
                 "replyToId": None,
                 "isEdited": False,
+                "sequenceNumber": 42,
                 "createdAt": "2025-10-10T10:00:00Z",
                 "updatedAt": None,
                 "deletedAt": None,

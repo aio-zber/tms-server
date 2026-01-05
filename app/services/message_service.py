@@ -207,6 +207,7 @@ class MessageService:
             "metadata_json": message.metadata_json,
             "reply_to_id": message.reply_to_id,
             "is_edited": message.is_edited,
+            "sequence_number": message.sequence_number,  # NEW: Include sequence number
             # Convert datetime objects to ISO format strings with 'Z' suffix (UTC indicator)
             "created_at": to_iso_utc(message.created_at),
             "updated_at": to_iso_utc(message.updated_at),
@@ -416,6 +417,11 @@ class MessageService:
                 )
             print(f"[MESSAGE_SERVICE] ✅ Reply validation passed for message {reply_to_id}")
 
+        # Get next sequence number (inside transaction, before message creation)
+        # This must happen atomically to prevent race conditions
+        sequence_number = await self.message_repo.get_next_sequence_number(conversation_id)
+        print(f"[MESSAGE_SERVICE] 🔢 Assigned sequence number: {sequence_number}")
+
         # Create message
         print(f"[MESSAGE_SERVICE] 📝 Creating message with reply_to_id: {reply_to_id}")
         message = await self.message_repo.create(
@@ -424,7 +430,8 @@ class MessageService:
             content=content,
             type=message_type,
             metadata_json=metadata_json or {},
-            reply_to_id=reply_to_id
+            reply_to_id=reply_to_id,
+            sequence_number=sequence_number  # NEW: Include sequence number
         )
 
         # CRITICAL FIX: Ensure message.id is populated before creating statuses
@@ -680,6 +687,7 @@ class MessageService:
                 "metadata_json": message.metadata_json,
                 "reply_to_id": message.reply_to_id,
                 "is_edited": message.is_edited,
+                "sequence_number": message.sequence_number,  # NEW: Include sequence number
                 "created_at": message.created_at,
                 "updated_at": message.updated_at,
                 "deleted_at": message.deleted_at,
