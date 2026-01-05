@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, List
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -108,6 +109,13 @@ class Message(Base, UUIDMixin):
         default=False,
         nullable=False,
         doc="Whether the message has been edited"
+    )
+
+    # Sequence number for deterministic ordering
+    sequence_number: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        doc="Monotonically increasing sequence number per conversation (ensures stable ordering)"
     )
 
     # Timestamps
@@ -273,8 +281,15 @@ class MessageReaction(Base, UUIDMixin):
 
 
 # Indexes for performance
-# Composite index for message queries sorted by time
-Index("idx_messages_conversation_created", Message.conversation_id, Message.created_at.desc())
+# Composite index for message queries sorted by sequence number (primary) and time (fallback)
+Index("idx_messages_conversation_seq",
+      Message.conversation_id,
+      Message.sequence_number.desc(),
+      Message.created_at.desc())
+
+# Unique constraint on (conversation_id, sequence_number) to ensure no duplicate sequences
+UniqueConstraint(Message.conversation_id, Message.sequence_number, name="uq_conversation_sequence")
+
 # Composite index for message status queries
 Index("idx_message_status_user", MessageStatus.user_id, MessageStatus.status)
 # Note: Single-column indexes removed - already created by index=True on columns

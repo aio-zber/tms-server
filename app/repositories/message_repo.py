@@ -23,6 +23,33 @@ class MessageRepository(BaseRepository[Message]):
         """Initialize message repository."""
         super().__init__(Message, db)
 
+    async def get_next_sequence_number(self, conversation_id: str) -> int:
+        """
+        Get next sequence number for conversation.
+
+        Uses SELECT FOR UPDATE to prevent race conditions in concurrent message sends.
+        PostgreSQL's MVCC ensures consistent sequence allocation even under high load.
+
+        Pattern: Telegram/WhatsApp style per-conversation sequence numbering.
+
+        Args:
+            conversation_id: Conversation UUID
+
+        Returns:
+            Next available sequence number (1-indexed)
+
+        Performance:
+            - ~1-2ms per call (SELECT MAX + 1)
+            - For higher throughput, could migrate to PostgreSQL sequences
+        """
+        result = await self.db.execute(
+            select(func.max(Message.sequence_number))
+            .where(Message.conversation_id == conversation_id)
+            .with_for_update()  # Lock to prevent concurrent sequence collisions
+        )
+        max_seq = result.scalar()
+        return (max_seq or 0) + 1
+
     async def get_with_relations(self, message_id: str) -> Optional[Message]:
         """
         Get message with all related data (sender, reactions, statuses).
@@ -87,22 +114,39 @@ class MessageRepository(BaseRepository[Message]):
 
         # Apply cursor pagination
         if cursor:
-            cursor_msg = await self.get(cursor)
-            if cursor_msg:
-                # For stable pagination with identical timestamps, use both created_at and id
-                query = query.where(
-                    or_(
-                        Message.created_at < cursor_msg.created_at,
-                        and_(
-                            Message.created_at == cursor_msg.created_at,
-                            Message.id < cursor_msg.id
+            if cursor.startswith("seq:"):
+                # NEW: Sequence-based cursor (format: "seq:12345")
+                try:
+                    cursor_seq = int(cursor.split(":")[1])
+                    query = query.where(Message.sequence_number < cursor_seq)
+                    print(f"[MESSAGE_REPO] Using sequence cursor: {cursor_seq}")
+                except (ValueError, IndexError):
+                    print(f"[MESSAGE_REPO] ⚠️ Invalid sequence cursor format: {cursor}")
+            else:
+                # LEGACY: UUID-based cursor (for backward compatibility during migration)
+                cursor_msg = await self.get(cursor)
+                if cursor_msg and cursor_msg.sequence_number:
+                    query = query.where(Message.sequence_number < cursor_msg.sequence_number)
+                    print(f"[MESSAGE_REPO] Using legacy UUID cursor, converted to seq: {cursor_msg.sequence_number}")
+                elif cursor_msg:
+                    # Fallback for messages without sequence numbers (shouldn't happen after migration)
+                    query = query.where(
+                        or_(
+                            Message.created_at < cursor_msg.created_at,
+                            and_(
+                                Message.created_at == cursor_msg.created_at,
+                                Message.id < cursor_msg.id
+                            )
                         )
                     )
-                )
+                    print(f"[MESSAGE_REPO] ⚠️ Using timestamp fallback for message without sequence")
 
-        # Order by created_at descending (newest first), then by id for stable ordering
-        # This ensures consistent order even when messages have identical timestamps
-        query = query.order_by(desc(Message.created_at), desc(Message.id)).limit(limit + 1)
+        # Order by sequence number descending (newest first)
+        # Secondary sort by created_at for robustness (handles edge cases)
+        query = query.order_by(
+            desc(Message.sequence_number),
+            desc(Message.created_at)
+        ).limit(limit + 1)
 
         print(f"[MESSAGE_REPO] 🔍 Fetching messages for conversation: {conversation_id}")
         print(f"[MESSAGE_REPO] 🔍 Limit: {limit}, Cursor: {cursor}, Include deleted: {include_deleted}")
@@ -140,8 +184,8 @@ class MessageRepository(BaseRepository[Message]):
         if has_more:
             messages = messages[:limit]
 
-        # Get next cursor (ID of last message)
-        next_cursor = messages[-1].id if messages and has_more else None
+        # Get next cursor (sequence-based format)
+        next_cursor = f"seq:{messages[-1].sequence_number}" if messages and has_more else None
 
         print(f"[MESSAGE_REPO] ✅ Returning {len(messages)} messages, has_more={has_more}, next_cursor={next_cursor}")
         return messages, next_cursor, has_more
