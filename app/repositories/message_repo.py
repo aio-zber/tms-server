@@ -27,8 +27,8 @@ class MessageRepository(BaseRepository[Message]):
         """
         Get next sequence number for conversation.
 
-        Uses SELECT FOR UPDATE to prevent race conditions in concurrent message sends.
-        PostgreSQL's MVCC ensures consistent sequence allocation even under high load.
+        Uses PostgreSQL advisory lock to prevent race conditions in concurrent message sends.
+        Advisory locks are automatically released at transaction commit/rollback.
 
         Pattern: Telegram/WhatsApp style per-conversation sequence numbering.
 
@@ -39,13 +39,23 @@ class MessageRepository(BaseRepository[Message]):
             Next available sequence number (1-indexed)
 
         Performance:
-            - ~1-2ms per call (SELECT MAX + 1)
-            - For higher throughput, could migrate to PostgreSQL sequences
+            - ~1-2ms per call (advisory lock + SELECT MAX + 1)
+            - Advisory locks are lightweight and don't conflict with table locks
         """
+        # Convert conversation UUID to int64 for advisory lock
+        # Use first 8 bytes of UUID (already guaranteed unique per conversation)
+        import uuid
+        conv_uuid = uuid.UUID(conversation_id)
+        lock_id = int.from_bytes(conv_uuid.bytes[:8], byteorder='big', signed=True)
+
+        # Acquire advisory lock (auto-released at transaction end)
+        # pg_advisory_xact_lock is transaction-scoped, perfect for this use case
+        await self.db.execute(select(func.pg_advisory_xact_lock(lock_id)))
+
+        # Now safe to compute MAX without race conditions
         result = await self.db.execute(
             select(func.max(Message.sequence_number))
             .where(Message.conversation_id == conversation_id)
-            .with_for_update()  # Lock to prevent concurrent sequence collisions
         )
         max_seq = result.scalar()
         return (max_seq or 0) + 1

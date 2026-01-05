@@ -94,12 +94,17 @@ class PollService:
 
         # Create message for poll using MessageRepository to auto-generate ID
         message_repo = MessageRepository(self.db)
+
+        # Get next sequence number for deterministic ordering (Telegram/WhatsApp pattern)
+        sequence_number = await message_repo.get_next_sequence_number(conversation_id)
+
         message = await message_repo.create(
             conversation_id=conversation_id,
             sender_id=user_id,
             content=question,  # Store question as message content
             type=MessageType.POLL,
-            metadata_json={}
+            metadata_json={},
+            sequence_number=sequence_number
         )
         await self.db.flush()  # Get message ID
 
@@ -151,7 +156,8 @@ class PollService:
             created_at=message.created_at,
             updated_at=message.updated_at,
             deleted_at=None,
-            status='sent'
+            status='sent',
+            sequence_number=message.sequence_number
         )
 
         # Return Pydantic model (FastAPI auto-serializes with camelCase)
