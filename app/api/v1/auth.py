@@ -822,7 +822,7 @@ async def sso_check(
 
     gcgc_login_url = os.getenv(
         "GCGC_LOGIN_URL",
-        "https://gcgc-team-management-system-staging.up.railway.app/auth/signin"
+        "https://tms-staging.example.com/auth/signin"
     )
 
     # Build callback URL for GCGC to redirect back to

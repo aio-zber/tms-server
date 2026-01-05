@@ -239,7 +239,7 @@ async def websocket_health_check():
                 "max_connections": settings.ws_max_connections,
             },
             "client_config": {
-                "url": "wss://tms-server-staging.up.railway.app" if not settings.is_development else "ws://localhost:8000",
+                "url": "wss://tms-chat-staging.example.com" if not settings.is_development else "ws://localhost:8000",
                 "path": "/socket.io",
                 "transports": ["websocket"],
                 "upgrade": False,
