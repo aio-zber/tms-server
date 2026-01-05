@@ -1,0 +1,63 @@
+# Systemd service file for TMS Frontend (Next.js)
+# Location: /etc/systemd/system/tms-frontend.service
+#
+# Installation:
+#   sudo cp deployment/systemd/tms-frontend.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable tms-frontend
+#   sudo systemctl start tms-frontend
+#
+# Management:
+#   sudo systemctl status tms-frontend
+#   sudo systemctl restart tms-frontend
+#   sudo systemctl stop tms-frontend
+#   sudo journalctl -u tms-frontend -f
+
+[Unit]
+Description=TMS Frontend (Next.js)
+After=network.target tms-backend.service
+Wants=tms-backend.service
+
+[Service]
+Type=simple
+User=tmsapp
+Group=tmsapp
+WorkingDirectory=/home/tmsapp/tms-client
+
+# Environment file (choose one based on environment)
+# For production:
+EnvironmentFile=/home/tmsapp/tms-client/.env.production.local
+# For staging:
+# EnvironmentFile=/home/tmsapp/tms-client/.env.staging.local
+
+# Run Next.js production server
+ExecStart=/usr/bin/npm start
+
+# Restart policy
+Restart=always
+RestartSec=10
+StartLimitInterval=350
+StartLimitBurst=10
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/tmsapp/tms-client
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tms-frontend
+
+# Environment variables
+Environment="NODE_ENV=production"
+Environment="PORT=3000"
+
+[Install]
+WantedBy=multi-user.target

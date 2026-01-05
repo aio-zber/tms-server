@@ -8,8 +8,8 @@ echo "========================================"
 echo ""
 
 # Configuration
-TMS_SERVER_URL="https://tms-server-staging.up.railway.app"
-CLIENT_ORIGIN="https://tms-client-staging.up.railway.app"
+TMS_SERVER_URL="https://tms-chat-staging.hotelsogo-ai.com"
+CLIENT_ORIGIN="https://tms-chat-staging.hotelsogo-ai.com"
 
 # Colors for output
 GREEN='\033[0;32m'
