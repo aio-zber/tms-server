@@ -304,11 +304,11 @@ async def sso_login(
         exp_timestamp = jwt_payload.get("exp")
         if exp_timestamp:
             ttl = max(int(exp_timestamp - datetime.now().timestamp()), 60)  # Min 60 seconds
-            await cache.set(token_key, True, ttl=ttl)
+            await cache.set(token_key, "1", ttl=ttl)  # Store "1" instead of True for Redis compatibility
             logger.info(f"🔒 SSO Login: Token marked as used (JTI: {jti}, TTL: {ttl}s)")
         else:
             # Fallback: Use 30 days (2592000 seconds) if exp claim missing
-            await cache.set(token_key, True, ttl=2592000)
+            await cache.set(token_key, "1", ttl=2592000)  # Store "1" instead of True
             logger.warning(f"⚠️ SSO Login: Token missing exp claim, using 30-day TTL")
 
         # Return the GCGC session token as the JWT token
