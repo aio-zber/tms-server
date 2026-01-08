@@ -96,6 +96,37 @@ app.add_middleware(
 )
 
 
+# HTTPException Handler with CORS
+# Handles HTTP exceptions (401, 403, 404, etc.) while preserving status codes
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """
+    Handle HTTP exceptions (401, 403, 404, etc.) with proper CORS headers.
+
+    This preserves the original status code from HTTPException instead of
+    converting everything to 500.
+    """
+    from fastapi.exceptions import HTTPException
+
+    # Get origin from request headers (for proper CORS)
+    origin = request.headers.get("origin", "*")
+
+    # Return JSON error with CORS headers and ORIGINAL status code
+    return JSONResponse(
+        status_code=exc.status_code,  # Preserve original status code (401, 403, etc.)
+        content={
+            "detail": exc.detail
+        },
+        headers={
+            "Access-Control-Allow-Origin": origin if origin in cors_origins else cors_origins[0] if cors_origins else "*",
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+            **({"WWW-Authenticate": exc.headers.get("WWW-Authenticate")} if exc.headers and "WWW-Authenticate" in exc.headers else {})
+        }
+    )
+
+
 # Global Exception Handler for CORS
 # Ensures CORS headers are present even when errors occur
 @app.exception_handler(Exception)
@@ -105,6 +136,9 @@ async def global_exception_handler(request: Request, exc: Exception):
 
     This is critical for message search and other features where database
     errors might occur before CORS middleware can add headers.
+
+    NOTE: This only handles non-HTTP exceptions. HTTPException is handled
+    by http_exception_handler above to preserve status codes.
     """
     import traceback
     import logging

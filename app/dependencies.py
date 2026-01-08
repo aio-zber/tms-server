@@ -200,6 +200,10 @@ async def get_current_user(
             detail="Authentication service unavailable",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    except HTTPException:
+        # Re-raise HTTP exceptions (including 401) with original status code
+        # This prevents them from being caught by the generic Exception handler below
+        raise
     except Exception as e:
         # Only truly unexpected errors should be 500
         import traceback

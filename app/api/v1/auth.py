@@ -227,6 +227,7 @@ async def sso_login(
 
     try:
         import logging
+        from datetime import datetime
         logger = logging.getLogger(__name__)
 
         # Decode and validate GCGC JWT token locally using shared NEXTAUTH_SECRET
@@ -235,10 +236,37 @@ async def sso_login(
         logger.debug(f"🔐 SSO Login: Token prefix: {gcgc_session_token[:50]}...")
 
         from app.core.security import decode_nextauth_token, SecurityException
+        from app.core.cache import cache
 
         jwt_payload = decode_nextauth_token(gcgc_session_token)
         logger.info(f"✅ SSO Login: JWT decoded successfully for user {jwt_payload.get('email')}")
         logger.debug(f"🔐 SSO Login: JWT payload: {jwt_payload}")
+
+        # SECURITY FIX: Single-use token validation to prevent replay attacks
+        # Extract jti (JWT ID) claim - use 'iat' (issued at) as unique identifier if jti not present
+        jti = jwt_payload.get("jti") or f"{jwt_payload.get('id')}:{jwt_payload.get('iat')}"
+        if not jti:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="JWT token missing required identifier (jti or iat claim)"
+            )
+
+        # Check if this token has already been used
+        token_key = f"used_gcgc_token:{jti}"
+        is_used = await cache.get(token_key)
+
+        if is_used:
+            logger.warning(f"🚨 SECURITY: Replay attack detected! Token JTI {jti} already used")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "token_already_used",
+                    "message": "This SSO token has already been used and cannot be reused",
+                    "hint": "Please log in again to get a fresh token"
+                }
+            )
+
+        logger.info(f"✅ SSO Login: Token is fresh (JTI: {jti})")
 
         # Extract user data from JWT payload
         tms_user_id = jwt_payload.get("id")
@@ -270,6 +298,18 @@ async def sso_login(
         # Build user response
         user_service = UserService(db)
         user_response = user_service._map_user_to_response(user, tms_user_data)
+
+        # SECURITY FIX: Mark token as used to prevent replay attacks
+        # Calculate TTL from token expiration (exp claim is Unix timestamp)
+        exp_timestamp = jwt_payload.get("exp")
+        if exp_timestamp:
+            ttl = max(int(exp_timestamp - datetime.now().timestamp()), 60)  # Min 60 seconds
+            await cache.set(token_key, True, ttl=ttl)
+            logger.info(f"🔒 SSO Login: Token marked as used (JTI: {jti}, TTL: {ttl}s)")
+        else:
+            # Fallback: Use 30 days (2592000 seconds) if exp claim missing
+            await cache.set(token_key, True, ttl=2592000)
+            logger.warning(f"⚠️ SSO Login: Token missing exp claim, using 30-day TTL")
 
         # Return the GCGC session token as the JWT token
         # TMS-Client will store this and use it for subsequent API calls
