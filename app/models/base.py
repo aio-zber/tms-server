@@ -50,6 +50,7 @@ class UUIDMixin:
     id: Mapped[str] = mapped_column(
         String(255),
         primary_key=True,
+        default=lambda: str(uuid.uuid4()),  # Auto-generate UUID for new records
         doc="String ID primary key (supports CUID and UUID formats)"
     )
 
