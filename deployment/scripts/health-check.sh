@@ -71,7 +71,7 @@ check_service() {
     # Check HTTP endpoint if provided
     if [ -n "${url}" ]; then
         http_code=$(curl -s -o /dev/null -w "%{http_code}" "${url}" 2>/dev/null || echo "000")
-        if [ "${http_code}" = "200" ] || [ "${http_code}" = "307" ] || [ "${http_code}" = "404" ]; then
+        if [ "${http_code}" = "200" ] || [ "${http_code}" = "301" ] || [ "${http_code}" = "307" ] || [ "${http_code}" = "404" ]; then
             log "${GREEN}OK: ${service} HTTP endpoint responsive (${http_code})${NC}"
         else
             log "${RED}ERROR: ${service} HTTP endpoint returned ${http_code}${NC}"
