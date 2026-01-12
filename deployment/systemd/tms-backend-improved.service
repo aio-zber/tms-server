@@ -1,0 +1,79 @@
+# Improved Systemd service file for TMS Backend (FastAPI/Uvicorn)
+# Location: /etc/systemd/system/tms-backend.service
+#
+# Installation:
+#   sudo cp deployment/systemd/tms-backend-improved.service /etc/systemd/system/tms-backend.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable tms-backend
+#   sudo systemctl start tms-backend
+#
+# Management:
+#   sudo systemctl status tms-backend
+#   sudo systemctl restart tms-backend
+#   sudo systemctl stop tms-backend
+#   sudo journalctl -u tms-backend -f
+
+[Unit]
+Description=TMS Backend (FastAPI)
+After=network.target postgresql.service redis.service
+Wants=postgresql.service redis.service
+
+[Service]
+Type=simple
+User=tmsapp
+Group=tmsapp
+WorkingDirectory=/home/tmsapp/tms-server
+
+# Environment file (choose one based on environment)
+# For production:
+EnvironmentFile=/home/tmsapp/tms-server/.env.production
+# For staging:
+# EnvironmentFile=/home/tmsapp/tms-server/.env.staging
+
+# Kill existing processes before starting (prevents zombie process issues)
+ExecStartPre=-/usr/bin/pkill -u tmsapp -f "uvicorn"
+ExecStartPre=-/bin/sleep 2
+
+# Run database migrations before starting
+ExecStartPre=/home/tmsapp/tms-server/venv/bin/alembic upgrade head
+
+# Run FastAPI with Uvicorn
+ExecStart=/home/tmsapp/tms-server/venv/bin/uvicorn app.main:app \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --workers 4 \
+    --log-level info \
+    --access-log \
+    --proxy-headers \
+    --forwarded-allow-ips="*"
+
+# Kill all child processes on stop (prevents zombie processes)
+KillMode=mixed
+KillSignal=SIGTERM
+SendSIGKILL=yes
+TimeoutStopSec=15
+
+# Restart policy
+Restart=on-failure
+RestartSec=10
+StartLimitInterval=200
+StartLimitBurst=5
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/tmsapp/tms-server
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tms-backend
+
+[Install]
+WantedBy=multi-user.target
