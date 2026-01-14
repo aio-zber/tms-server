@@ -179,7 +179,7 @@ class MessageResponse(BaseModel):
     sender_id: str = Field(serialization_alias="senderId")
     content: Optional[str]
     type: MessageType
-    metadata_json: Dict[str, Any] = Field(default_factory=dict, serialization_alias="metadataJson")
+    metadata_json: Dict[str, Any] = Field(default_factory=dict, serialization_alias="metadata")
     reply_to_id: Optional[str] = Field(None, serialization_alias="replyToId")
     is_edited: bool = Field(serialization_alias="isEdited")
     sequence_number: int = Field(..., serialization_alias="sequenceNumber", description="Monotonically increasing sequence number per conversation")
@@ -209,7 +209,7 @@ class MessageResponse(BaseModel):
                 "senderId": "123e4567-e89b-12d3-a456-426614174002",
                 "content": "Hello, how are you?",
                 "type": "text",
-                "metadataJson": {},
+                "metadata": {},
                 "replyToId": None,
                 "isEdited": False,
                 "sequenceNumber": 42,
