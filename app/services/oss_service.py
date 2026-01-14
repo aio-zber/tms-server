@@ -186,14 +186,13 @@ class OSSService:
             file_content = await file.read()
             file_size = len(file_content)
 
-            # Upload to OSS
+            # Upload to OSS (bucket ACL handles public access)
             result = self.bucket.put_object(
                 oss_key,
                 file_content,
                 headers={
                     'Content-Type': file.content_type,
                     'Cache-Control': 'public, max-age=31536000',  # Cache for 1 year
-                    'x-oss-object-acl': 'public-read'  # Make file publicly readable
                 }
             )
 
@@ -203,9 +202,10 @@ class OSSService:
                     detail=f"Failed to upload file to OSS: HTTP {result.status}"
                 )
 
-            # Construct public URL
-            # Format: https://{bucket}.{endpoint}/{key}
-            public_url = f"https://{settings.oss_bucket_name}.{settings.oss_endpoint}/{oss_key}"
+            # Construct public URL (use public endpoint, not internal)
+            # Format: https://{bucket}.{public_endpoint}/{key}
+            public_endpoint = settings.oss_endpoint.replace('-internal', '')
+            public_url = f"https://{settings.oss_bucket_name}.{public_endpoint}/{oss_key}"
 
             logger.info(f"File uploaded successfully: {oss_key} ({file_size} bytes)")
 
@@ -272,14 +272,13 @@ class OSSService:
             thumbnail_filename = f"{uuid.uuid4().hex[:12]}_thumb.jpg"
             oss_key = f"{folder}/{thumbnail_filename}"
 
-            # Upload thumbnail to OSS
+            # Upload thumbnail to OSS (bucket ACL handles public access)
             result = self.bucket.put_object(
                 oss_key,
                 thumbnail_bytes,
                 headers={
                     'Content-Type': 'image/jpeg',
                     'Cache-Control': 'public, max-age=31536000',
-                    'x-oss-object-acl': 'public-read'
                 }
             )
 
@@ -287,8 +286,9 @@ class OSSService:
                 logger.warning(f"Failed to upload thumbnail to OSS: HTTP {result.status}")
                 return None
 
-            # Construct public URL
-            thumbnail_url = f"https://{settings.oss_bucket_name}.{settings.oss_endpoint}/{oss_key}"
+            # Construct public URL (use public endpoint, not internal)
+            public_endpoint = settings.oss_endpoint.replace('-internal', '')
+            thumbnail_url = f"https://{settings.oss_bucket_name}.{public_endpoint}/{oss_key}"
 
             logger.info(f"Thumbnail generated: {oss_key} ({len(thumbnail_bytes)} bytes)")
 
@@ -351,7 +351,8 @@ class OSSService:
         Returns:
             Public URL
         """
-        return f"https://{settings.oss_bucket_name}.{settings.oss_endpoint}/{oss_key}"
+        public_endpoint = settings.oss_endpoint.replace('-internal', '')
+        return f"https://{settings.oss_bucket_name}.{public_endpoint}/{oss_key}"
 
     def format_file_size(self, size_bytes: int) -> str:
         """
