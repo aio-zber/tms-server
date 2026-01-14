@@ -1415,5 +1415,132 @@ class MessageService:
         )
 
         await self.db.commit()
-        
+
         return result.rowcount
+
+    async def handle_file_upload(
+        self,
+        sender_id: str,
+        conversation_id: str,
+        file: "UploadFile",
+        reply_to_id: Optional[str] = None,
+        duration: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Handle file upload and create message.
+
+        Uploads file to OSS, generates thumbnail if applicable, and creates
+        a message with the appropriate type (IMAGE, FILE, or VOICE).
+
+        Args:
+            sender_id: Sender user ID
+            conversation_id: Conversation ID
+            file: Uploaded file (FastAPI UploadFile)
+            reply_to_id: Optional message ID to reply to
+            duration: Optional duration for voice messages (seconds)
+
+        Returns:
+            Created message with enriched data
+
+        Raises:
+            HTTPException: If validation fails or upload fails
+        """
+        from fastapi import UploadFile
+        from app.services.oss_service import OSSService
+        from app.config import settings
+
+        print(f"[MESSAGE_SERVICE] 📁 Starting file upload: {file.filename}")
+        print(f"[MESSAGE_SERVICE] 📁 Content-Type: {file.content_type}")
+        print(f"[MESSAGE_SERVICE] 📁 Conversation: {conversation_id}")
+
+        # Initialize OSS service
+        oss_service = OSSService()
+
+        # Validate file type and size
+        allowed_types = settings.get_allowed_file_types_list()
+        max_size = settings.max_upload_size
+
+        print(f"[MESSAGE_SERVICE] 🔍 Validating file (max_size: {max_size}, allowed_types: {len(allowed_types)})")
+        oss_service.validate_file(file, allowed_types, max_size)
+
+        # Determine message type based on MIME type
+        content_type = file.content_type or "application/octet-stream"
+
+        if content_type.startswith('image/'):
+            message_type = MessageType.IMAGE
+            print(f"[MESSAGE_SERVICE] 🖼️ Message type: IMAGE")
+        elif content_type.startswith('audio/'):
+            message_type = MessageType.VOICE
+            print(f"[MESSAGE_SERVICE] 🎤 Message type: VOICE")
+        elif content_type.startswith('video/'):
+            message_type = MessageType.FILE  # Videos are treated as files for now
+            print(f"[MESSAGE_SERVICE] 🎬 Message type: FILE (video)")
+        else:
+            message_type = MessageType.FILE
+            print(f"[MESSAGE_SERVICE] 📄 Message type: FILE")
+
+        # Upload file to OSS
+        folder = f"messages/{conversation_id}"
+        print(f"[MESSAGE_SERVICE] ☁️ Uploading to OSS folder: {folder}")
+
+        upload_result = await oss_service.upload_file(file, folder=folder)
+        print(f"[MESSAGE_SERVICE] ✅ File uploaded: {upload_result['url']}")
+
+        # Generate thumbnail for images
+        thumbnail_url = None
+        if message_type == MessageType.IMAGE:
+            print(f"[MESSAGE_SERVICE] 🖼️ Generating image thumbnail...")
+            try:
+                # Reset file pointer and read content for thumbnail
+                file.file.seek(0)
+                image_bytes = await file.read()
+
+                thumbnail_result = await oss_service.generate_image_thumbnail(
+                    image_bytes,
+                    folder=f"thumbnails/{conversation_id}"
+                )
+
+                if thumbnail_result:
+                    thumbnail_url = thumbnail_result[1]
+                    print(f"[MESSAGE_SERVICE] ✅ Thumbnail generated: {thumbnail_url}")
+                else:
+                    print(f"[MESSAGE_SERVICE] ⚠️ Thumbnail generation returned None")
+            except Exception as e:
+                print(f"[MESSAGE_SERVICE] ⚠️ Thumbnail generation failed: {e}")
+                # Non-critical - continue without thumbnail
+
+        # Build metadata
+        metadata_json = {
+            "fileName": file.filename,
+            "fileSize": upload_result["file_size"],
+            "fileUrl": upload_result["url"],
+            "mimeType": content_type,
+            "ossKey": upload_result["oss_key"]
+        }
+
+        # Add thumbnail URL if available
+        if thumbnail_url:
+            metadata_json["thumbnailUrl"] = thumbnail_url
+
+        # Add duration for voice messages
+        if message_type == MessageType.VOICE and duration:
+            metadata_json["duration"] = duration
+            print(f"[MESSAGE_SERVICE] 🎤 Voice duration: {duration}s")
+
+        print(f"[MESSAGE_SERVICE] 📋 Metadata: {metadata_json}")
+
+        # Create message using existing send_message method
+        # Use filename as content for file messages
+        content = file.filename
+
+        message = await self.send_message(
+            sender_id=sender_id,
+            conversation_id=conversation_id,
+            content=content,
+            message_type=message_type,
+            metadata_json=metadata_json,
+            reply_to_id=reply_to_id
+        )
+
+        print(f"[MESSAGE_SERVICE] ✅ File message created: {message.get('id')}")
+        return message

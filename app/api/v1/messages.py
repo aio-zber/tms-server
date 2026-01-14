@@ -5,7 +5,7 @@ Provides endpoints for sending, retrieving, editing, and managing messages.
 from typing import Optional
 # UUID import removed - using str for ID types
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -855,3 +855,78 @@ async def clear_conversation(
         "message": f"Cleared {deleted_count} messages from conversation",
         "deleted_count": deleted_count
     }
+
+
+@router.post(
+    "/upload",
+    response_model=MessageResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload file and send as message",
+    description="Upload a file (image, video, document) and send as a message. Supports thumbnails for images."
+)
+@limiter.limit("10/minute")  # Max 10 file uploads per minute per user
+async def upload_file_message(
+    request: Request,
+    conversation_id: str = Form(...),
+    file: UploadFile = File(...),
+    reply_to_id: Optional[str] = Form(None),
+    duration: Optional[int] = Form(None),  # For voice messages (seconds)
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Upload file and send as message.
+
+    - **conversation_id**: Target conversation ID
+    - **file**: File to upload (max size configured in settings)
+    - **reply_to_id**: Optional message ID to reply to
+    - **duration**: Optional duration for audio/voice messages (in seconds)
+
+    Supported file types:
+    - Images: JPEG, PNG, GIF, WebP
+    - Videos: MP4, MOV
+    - Audio: WebM, OGG, MP3
+    - Documents: PDF, DOC, DOCX, XLS, XLSX
+    """
+    try:
+        service = MessageService(db)
+
+        # Get user_id from local user record
+        from app.models.user import User
+        from sqlalchemy import select
+
+        result = await db.execute(
+            select(User).where(User.tms_user_id == current_user["tms_user_id"])
+        )
+        user = result.scalar_one_or_none()
+
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found in local database"
+            )
+
+        # Delegate to message service for file upload handling
+        message = await service.handle_file_upload(
+            sender_id=user.id,
+            conversation_id=conversation_id,
+            file=file,
+            reply_to_id=reply_to_id,
+            duration=duration
+        )
+
+        return message
+
+    except HTTPException:
+        # Re-raise HTTP exceptions (validation errors, etc.)
+        raise
+    except Exception as e:
+        # Log unexpected errors
+        import traceback
+        print(f"❌ ERROR uploading file: {type(e).__name__}: {str(e)}")
+        print(traceback.format_exc())
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to upload file: {type(e).__name__}: {str(e)}"
+        )
