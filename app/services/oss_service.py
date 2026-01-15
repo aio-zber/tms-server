@@ -38,8 +38,9 @@ class OSSService:
             settings.oss_access_key_secret
         )
 
-        # Use public endpoint for signed URLs (accessible from internet)
-        self.public_endpoint = settings.oss_endpoint.replace('-internal', '')
+        # Use public HTTPS endpoint for signed URLs (accessible from internet)
+        public_endpoint = settings.oss_endpoint.replace('-internal', '')
+        self.public_endpoint = f"https://{public_endpoint}"
 
         # Initialize OSS bucket with internal endpoint for uploads (faster within Alibaba Cloud)
         self.bucket = oss2.Bucket(
@@ -48,7 +49,7 @@ class OSSService:
             settings.oss_bucket_name
         )
 
-        # Create a separate bucket instance with public endpoint for generating signed URLs
+        # Create a separate bucket instance with public HTTPS endpoint for generating signed URLs
         self.public_bucket = oss2.Bucket(
             self.auth,
             self.public_endpoint,
@@ -70,7 +71,8 @@ class OSSService:
             expiration = self.SIGNED_URL_EXPIRATION
 
         # Generate signed URL using public endpoint bucket
-        signed_url = self.public_bucket.sign_url('GET', oss_key, expiration)
+        # slash_safe=True prevents URL encoding of forward slashes in the key
+        signed_url = self.public_bucket.sign_url('GET', oss_key, expiration, slash_safe=True)
         return signed_url
 
     def _sanitize_filename(self, filename: str) -> str:
