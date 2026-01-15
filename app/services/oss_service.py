@@ -77,15 +77,18 @@ class OSSService:
         signed_url = self.public_bucket.sign_url('GET', oss_key, expiration, slash_safe=True)
         return signed_url
 
-    def generate_view_url(self, oss_key: str, filename: str, content_type: str, expiration: int = None) -> str:
+    def generate_view_url(self, oss_key: str, filename: str, content_type: str = None, expiration: int = None) -> str:
         """
         Generate a signed URL for viewing a file inline in the browser.
-        Uses response-content-disposition and response-content-type params.
+        Uses response-content-disposition: inline to display in browser.
+
+        Note: OSS bucket doesn't allow overriding content-type header,
+        so we only set content-disposition to inline.
 
         Args:
             oss_key: The OSS object key
             filename: Original filename for Content-Disposition header
-            content_type: MIME type for Content-Type header
+            content_type: Unused (OSS doesn't allow override)
             expiration: URL expiration time in seconds (default: 7 days)
 
         Returns:
@@ -95,10 +98,9 @@ class OSSService:
             expiration = self.SIGNED_URL_EXPIRATION
 
         # Build params for inline viewing
-        # These override the response headers when accessing the URL
+        # Only set content-disposition (OSS doesn't allow content-type override)
         params = {
-            'response-content-disposition': f'inline; filename="{filename}"',
-            'response-content-type': content_type
+            'response-content-disposition': f'inline; filename="{filename}"'
         }
 
         # Generate signed URL with response header overrides
