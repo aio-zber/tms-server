@@ -258,12 +258,27 @@ class OSSService:
             file_content = await file.read()
             file_size = len(file_content)
 
+            # Determine Content-Disposition based on file type
+            # PDFs and images should display inline in browser, others download
+            content_type = file.content_type or 'application/octet-stream'
+            viewable_types = [
+                'application/pdf',
+                'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+                'text/plain', 'text/html', 'text/css', 'text/javascript'
+            ]
+
+            if content_type in viewable_types:
+                content_disposition = f'inline; filename="{unique_filename}"'
+            else:
+                content_disposition = f'attachment; filename="{unique_filename}"'
+
             # Upload to OSS (bucket ACL handles public access)
             result = self.bucket.put_object(
                 oss_key,
                 file_content,
                 headers={
-                    'Content-Type': file.content_type,
+                    'Content-Type': content_type,
+                    'Content-Disposition': content_disposition,
                     'Cache-Control': 'public, max-age=31536000',  # Cache for 1 year
                 }
             )
