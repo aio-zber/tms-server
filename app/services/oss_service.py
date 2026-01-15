@@ -56,13 +56,15 @@ class OSSService:
             settings.oss_bucket_name
         )
 
-    def generate_signed_url(self, oss_key: str, expiration: int = None) -> str:
+    def generate_signed_url(self, oss_key: str, expiration: int = None, for_download: bool = True) -> str:
         """
         Generate a signed URL for accessing a private OSS object.
 
         Args:
             oss_key: The OSS object key
             expiration: URL expiration time in seconds (default: 7 days)
+            for_download: If True, Content-Disposition: attachment (download)
+                         If False, Content-Disposition: inline (view in browser)
 
         Returns:
             Signed URL that provides temporary access to the object
@@ -73,6 +75,40 @@ class OSSService:
         # Generate signed URL using public endpoint bucket
         # slash_safe=True prevents URL encoding of forward slashes in the key
         signed_url = self.public_bucket.sign_url('GET', oss_key, expiration, slash_safe=True)
+        return signed_url
+
+    def generate_view_url(self, oss_key: str, filename: str, content_type: str, expiration: int = None) -> str:
+        """
+        Generate a signed URL for viewing a file inline in the browser.
+        Uses response-content-disposition and response-content-type params.
+
+        Args:
+            oss_key: The OSS object key
+            filename: Original filename for Content-Disposition header
+            content_type: MIME type for Content-Type header
+            expiration: URL expiration time in seconds (default: 7 days)
+
+        Returns:
+            Signed URL that displays file inline in browser
+        """
+        if expiration is None:
+            expiration = self.SIGNED_URL_EXPIRATION
+
+        # Build params for inline viewing
+        # These override the response headers when accessing the URL
+        params = {
+            'response-content-disposition': f'inline; filename="{filename}"',
+            'response-content-type': content_type
+        }
+
+        # Generate signed URL with response header overrides
+        signed_url = self.public_bucket.sign_url(
+            'GET',
+            oss_key,
+            expiration,
+            slash_safe=True,
+            params=params
+        )
         return signed_url
 
     def _sanitize_filename(self, filename: str) -> str:

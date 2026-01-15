@@ -1518,6 +1518,20 @@ class MessageService:
             "ossKey": upload_result["oss_key"]
         }
 
+        # Generate viewUrl for inline browser viewing (Content-Disposition: inline)
+        # This allows PDFs, images, etc. to be viewed directly in the browser
+        try:
+            view_url = oss_service.generate_view_url(
+                oss_key=upload_result["oss_key"],
+                filename=file.filename,
+                content_type=content_type
+            )
+            metadata_json["viewUrl"] = view_url
+            print(f"[MESSAGE_SERVICE] 👁️ View URL generated for inline viewing")
+        except Exception as e:
+            print(f"[MESSAGE_SERVICE] ⚠️ Failed to generate view URL: {e}")
+            # Fall back to fileUrl for viewing
+
         # Add thumbnail URL if available
         if thumbnail_url:
             metadata_json["thumbnailUrl"] = thumbnail_url
