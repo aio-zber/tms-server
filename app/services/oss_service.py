@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 class OSSService:
     """Service for handling file uploads to Alibaba Cloud OSS."""
 
+    # Signed URL expiration time (7 days in seconds)
+    # Like Telegram/WhatsApp - files remain accessible for extended period
+    SIGNED_URL_EXPIRATION = 7 * 24 * 60 * 60  # 7 days
+
     def __init__(self):
         """Initialize OSS service with credentials from settings."""
         if not settings.oss_access_key_id or not settings.oss_access_key_secret:
@@ -34,12 +38,40 @@ class OSSService:
             settings.oss_access_key_secret
         )
 
-        # Initialize OSS bucket
+        # Use public endpoint for signed URLs (accessible from internet)
+        self.public_endpoint = settings.oss_endpoint.replace('-internal', '')
+
+        # Initialize OSS bucket with internal endpoint for uploads (faster within Alibaba Cloud)
         self.bucket = oss2.Bucket(
             self.auth,
             settings.oss_endpoint,
             settings.oss_bucket_name
         )
+
+        # Create a separate bucket instance with public endpoint for generating signed URLs
+        self.public_bucket = oss2.Bucket(
+            self.auth,
+            self.public_endpoint,
+            settings.oss_bucket_name
+        )
+
+    def generate_signed_url(self, oss_key: str, expiration: int = None) -> str:
+        """
+        Generate a signed URL for accessing a private OSS object.
+
+        Args:
+            oss_key: The OSS object key
+            expiration: URL expiration time in seconds (default: 7 days)
+
+        Returns:
+            Signed URL that provides temporary access to the object
+        """
+        if expiration is None:
+            expiration = self.SIGNED_URL_EXPIRATION
+
+        # Generate signed URL using public endpoint bucket
+        signed_url = self.public_bucket.sign_url('GET', oss_key, expiration)
+        return signed_url
 
     def _sanitize_filename(self, filename: str) -> str:
         """
@@ -202,15 +234,13 @@ class OSSService:
                     detail=f"Failed to upload file to OSS: HTTP {result.status}"
                 )
 
-            # Construct public URL (use public endpoint, not internal)
-            # Format: https://{bucket}.{public_endpoint}/{key}
-            public_endpoint = settings.oss_endpoint.replace('-internal', '')
-            public_url = f"https://{settings.oss_bucket_name}.{public_endpoint}/{oss_key}"
+            # Generate signed URL for secure access (bucket is private)
+            signed_url = self.generate_signed_url(oss_key)
 
             logger.info(f"File uploaded successfully: {oss_key} ({file_size} bytes)")
 
             return {
-                "url": public_url,
+                "url": signed_url,
                 "file_size": file_size,
                 "oss_key": oss_key
             }
@@ -286,9 +316,8 @@ class OSSService:
                 logger.warning(f"Failed to upload thumbnail to OSS: HTTP {result.status}")
                 return None
 
-            # Construct public URL (use public endpoint, not internal)
-            public_endpoint = settings.oss_endpoint.replace('-internal', '')
-            thumbnail_url = f"https://{settings.oss_bucket_name}.{public_endpoint}/{oss_key}"
+            # Generate signed URL for secure access (bucket is private)
+            thumbnail_url = self.generate_signed_url(oss_key)
 
             logger.info(f"Thumbnail generated: {oss_key} ({len(thumbnail_bytes)} bytes)")
 
@@ -343,16 +372,15 @@ class OSSService:
 
     def get_file_url(self, oss_key: str) -> str:
         """
-        Get public URL for an OSS object.
+        Get signed URL for an OSS object.
 
         Args:
             oss_key: OSS object key
 
         Returns:
-            Public URL
+            Signed URL with temporary access
         """
-        public_endpoint = settings.oss_endpoint.replace('-internal', '')
-        return f"https://{settings.oss_bucket_name}.{public_endpoint}/{oss_key}"
+        return self.generate_signed_url(oss_key)
 
     def format_file_size(self, size_bytes: int) -> str:
         """
