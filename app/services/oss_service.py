@@ -56,15 +56,21 @@ class OSSService:
             settings.oss_bucket_name
         )
 
-    def generate_signed_url(self, oss_key: str, expiration: int = None, for_download: bool = True) -> str:
+    def generate_signed_url(
+        self,
+        oss_key: str,
+        expiration: int = None,
+        inline: bool = False,
+        filename: str = None
+    ) -> str:
         """
         Generate a signed URL for accessing a private OSS object.
 
         Args:
             oss_key: The OSS object key
             expiration: URL expiration time in seconds (default: 7 days)
-            for_download: If True, Content-Disposition: attachment (download)
-                         If False, Content-Disposition: inline (view in browser)
+            inline: If True, add response-content-disposition: inline for browser viewing
+            filename: Original filename for Content-Disposition header
 
         Returns:
             Signed URL that provides temporary access to the object
@@ -72,9 +78,23 @@ class OSSService:
         if expiration is None:
             expiration = self.SIGNED_URL_EXPIRATION
 
+        params = None
+        if inline and filename:
+            # Add response-content-disposition to override stored header
+            # This tells OSS to return inline disposition, so browsers display the file
+            params = {
+                'response-content-disposition': f'inline; filename="{filename}"'
+            }
+
         # Generate signed URL using public endpoint bucket
         # slash_safe=True prevents URL encoding of forward slashes in the key
-        signed_url = self.public_bucket.sign_url('GET', oss_key, expiration, slash_safe=True)
+        signed_url = self.public_bucket.sign_url(
+            'GET',
+            oss_key,
+            expiration,
+            slash_safe=True,
+            params=params
+        )
         return signed_url
 
     def generate_view_url(self, oss_key: str, filename: str, content_type: str = None, expiration: int = None) -> str:
@@ -290,7 +310,13 @@ class OSSService:
                 )
 
             # Generate signed URL for secure access (bucket is private)
-            signed_url = self.generate_signed_url(oss_key)
+            # Use inline disposition for viewable types so they open in browser
+            is_viewable = content_type in viewable_types
+            signed_url = self.generate_signed_url(
+                oss_key,
+                inline=is_viewable,
+                filename=unique_filename if is_viewable else None
+            )
 
             logger.info(f"File uploaded successfully: {oss_key} ({file_size} bytes)")
 
