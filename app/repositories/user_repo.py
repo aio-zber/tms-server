@@ -65,10 +65,18 @@ class UserRepository(BaseRepository[User]):
     ) -> User:
         """
         Upsert (insert or update) user from TMS data.
-        Uses PostgreSQL's ON CONFLICT DO UPDATE for efficiency.
+
+        IMPORTANT: Uses EMAIL as the primary identifier for matching existing users,
+        NOT tms_user_id. This handles the case where TMS user IDs change (e.g., after
+        TMS database reseed) but emails remain stable.
+
+        Logic:
+        1. First, look up user by EMAIL
+        2. If found by email, update that user (including tms_user_id if changed)
+        3. If not found by email, create new user with the provided tms_user_id
 
         Args:
-            tms_user_id: TMS user ID
+            tms_user_id: TMS user ID (may be new/different from stored ID)
             tms_data: User data from TMS API
 
         Returns:
@@ -97,11 +105,59 @@ class UserRepository(BaseRepository[User]):
             (name_parts[1] if len(name_parts) > 1 else None)
         )
 
+        email = tms_data.get("email")
+
+        print(f"[USER_REPO] 👤 Syncing user: tms_id={tms_user_id}, email='{email}', name='{full_name}'")
+
+        # STEP 1: Look up existing user by EMAIL (stable identifier)
+        existing_user = None
+        if email:
+            existing_user = await self.get_by_email(email)
+            if existing_user:
+                print(f"[USER_REPO] ✅ Found existing user by email: {email} (current id={existing_user.id})")
+
+                # Check if TMS ID has changed
+                if existing_user.tms_user_id != tms_user_id:
+                    print(f"[USER_REPO] ⚠️ TMS ID changed: {existing_user.tms_user_id} -> {tms_user_id}")
+                    print(f"[USER_REPO] 📝 Keeping existing user ID to preserve conversations/messages")
+
+        # STEP 2: If user exists by email, UPDATE that user (keep existing ID)
+        if existing_user:
+            # Update existing user, keeping the original ID to preserve relationships
+            existing_user.tms_user_id = existing_user.id  # Keep ID as tms_user_id for consistency
+            existing_user.email = email
+            existing_user.username = tms_data.get("username")
+            existing_user.first_name = first_name
+            existing_user.last_name = last_name
+            existing_user.middle_name = tms_data.get("middleName") or tms_data.get("middle_name")
+            existing_user.image = tms_data.get("image")
+            existing_user.contact_number = tms_data.get("contactNumber") or tms_data.get("contact_number")
+            existing_user.role = tms_data.get("role")
+            existing_user.position_title = tms_data.get("positionTitle") or tms_data.get("position_title")
+            existing_user.division = tms_data.get("division")
+            existing_user.department = tms_data.get("department")
+            existing_user.section = tms_data.get("section")
+            existing_user.custom_team = tms_data.get("customTeam") or tms_data.get("custom_team")
+            existing_user.hierarchy_level = tms_data.get("hierarchyLevel") or tms_data.get("hierarchy_level")
+            existing_user.reports_to_id = tms_data.get("reportsToId") or tms_data.get("reports_to_id")
+            existing_user.is_active = tms_data.get("isActive", tms_data.get("is_active", True))
+            existing_user.is_leader = tms_data.get("isLeader", tms_data.get("is_leader", False))
+            existing_user.last_synced_at = utc_now()
+            existing_user.updated_at = utc_now()
+
+            await self.db.flush()
+            await self.db.refresh(existing_user)
+            print(f"[USER_REPO] ✅ Updated existing user: {existing_user.id}")
+            return existing_user
+
+        # STEP 3: No existing user by email - create new user with tms_user_id
+        print(f"[USER_REPO] 🆕 Creating new user with id={tms_user_id}")
+
         user_data = {
             "id": tms_user_id,  # Use TMS user ID (CUID format) as primary key
             "tms_user_id": tms_user_id,
-            "email": tms_data.get("email"),
-            "username": tms_data.get("username"),  # No fallback - use GCGC's actual username
+            "email": email,
+            "username": tms_data.get("username"),
             "first_name": first_name,
             "last_name": last_name,
             "middle_name": tms_data.get("middleName") or tms_data.get("middle_name"),
@@ -120,14 +176,12 @@ class UserRepository(BaseRepository[User]):
             "last_synced_at": utc_now(),
         }
 
-        print(f"[USER_REPO] 👤 Syncing user: {tms_user_id}, username='{tms_data.get('username')}', name='{full_name}', first='{first_name}', last='{last_name}'")
-
-        # Use PostgreSQL UPSERT (INSERT ... ON CONFLICT DO UPDATE)
+        # Use PostgreSQL UPSERT for new users (in case of race conditions)
         stmt = insert(User).values(**user_data)
         stmt = stmt.on_conflict_do_update(
             index_elements=["tms_user_id"],  # Unique constraint on tms_user_id
             set_={
-                **{k: v for k, v in user_data.items() if k not in ["id", "tms_user_id"]},  # Don't update ID
+                **{k: v for k, v in user_data.items() if k not in ["id", "tms_user_id"]},
                 "updated_at": utc_now(),
             }
         ).returning(User)
