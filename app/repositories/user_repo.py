@@ -66,14 +66,17 @@ class UserRepository(BaseRepository[User]):
         """
         Upsert (insert or update) user from TMS data.
 
-        IMPORTANT: Uses EMAIL as the primary identifier for matching existing users,
-        NOT tms_user_id. This handles the case where TMS user IDs change (e.g., after
-        TMS database reseed) but emails remain stable.
+        Uses a DUAL-IDENTIFIER strategy to handle both scenarios:
+        - TMS ID changes but email stays same (e.g., TMS database reseed)
+        - Email changes but TMS ID stays same (e.g., user updates email in TMS)
 
-        Logic:
-        1. First, look up user by EMAIL
-        2. If found by email, update that user (including tms_user_id if changed)
-        3. If not found by email, create new user with the provided tms_user_id
+        Priority order:
+        1. First, try to match by TMS user ID (primary identifier)
+        2. If not found, try to match by EMAIL (fallback identifier)
+        3. If neither found, create new user
+
+        This ensures conversations and messages are preserved regardless of
+        which identifier changes in TMS.
 
         Args:
             tms_user_id: TMS user ID (may be new/different from stored ID)
@@ -109,22 +112,26 @@ class UserRepository(BaseRepository[User]):
 
         print(f"[USER_REPO] 👤 Syncing user: tms_id={tms_user_id}, email='{email}', name='{full_name}'")
 
-        # STEP 1: Look up existing user by EMAIL (stable identifier)
-        existing_user = None
-        if email:
+        # STEP 1: Try to find existing user by TMS ID first (handles email changes)
+        existing_user = await self.get_by_tms_user_id(tms_user_id)
+        if existing_user:
+            print(f"[USER_REPO] ✅ Found existing user by TMS ID: {tms_user_id}")
+            if existing_user.email != email:
+                print(f"[USER_REPO] 📝 Email changed: {existing_user.email} -> {email}")
+
+        # STEP 2: If not found by TMS ID, try to find by EMAIL (handles TMS ID changes)
+        if not existing_user and email:
             existing_user = await self.get_by_email(email)
             if existing_user:
                 print(f"[USER_REPO] ✅ Found existing user by email: {email} (current id={existing_user.id})")
+                print(f"[USER_REPO] ⚠️ TMS ID changed: {existing_user.tms_user_id} -> {tms_user_id}")
+                print(f"[USER_REPO] 📝 Keeping existing user ID to preserve conversations/messages")
 
-                # Check if TMS ID has changed
-                if existing_user.tms_user_id != tms_user_id:
-                    print(f"[USER_REPO] ⚠️ TMS ID changed: {existing_user.tms_user_id} -> {tms_user_id}")
-                    print(f"[USER_REPO] 📝 Keeping existing user ID to preserve conversations/messages")
-
-        # STEP 2: If user exists by email, UPDATE that user (keep existing ID)
+        # STEP 3: If user exists (by either identifier), UPDATE that user
         if existing_user:
             # Update existing user, keeping the original ID to preserve relationships
-            existing_user.tms_user_id = existing_user.id  # Keep ID as tms_user_id for consistency
+            # Only update tms_user_id if we found by TMS ID (not email fallback)
+            # This keeps the stable ID that has all the foreign key references
             existing_user.email = email
             existing_user.username = tms_data.get("username")
             existing_user.first_name = first_name
@@ -150,7 +157,7 @@ class UserRepository(BaseRepository[User]):
             print(f"[USER_REPO] ✅ Updated existing user: {existing_user.id}")
             return existing_user
 
-        # STEP 3: No existing user by email - create new user with tms_user_id
+        # STEP 4: No existing user found - create new user with tms_user_id
         print(f"[USER_REPO] 🆕 Creating new user with id={tms_user_id}")
 
         user_data = {
