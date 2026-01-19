@@ -2,6 +2,7 @@
 User repository for database operations.
 Handles user CRUD, syncing from TMS, and search operations.
 """
+import logging
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 # UUID import removed - using str for ID types
@@ -14,6 +15,8 @@ from sqlalchemy.dialects.postgresql import insert
 
 from app.models.user import User
 from app.repositories.base import BaseRepository
+
+logger = logging.getLogger(__name__)
 
 
 class UserRepository(BaseRepository[User]):
@@ -110,28 +113,28 @@ class UserRepository(BaseRepository[User]):
 
         email = tms_data.get("email")
 
-        print(f"[USER_REPO] 👤 Syncing user: tms_id={tms_user_id}, email='{email}', name='{full_name}'")
+        logger.info(f"👤 [USER_REPO] Syncing user: tms_id={tms_user_id}, email='{email}', name='{full_name}'")
 
         # STEP 1: Try to find existing user by TMS ID first (handles email changes)
         existing_user = await self.get_by_tms_user_id(tms_user_id)
         if existing_user:
-            print(f"[USER_REPO] ✅ Found existing user by TMS ID: {tms_user_id}")
+            logger.info(f"✅ [USER_REPO] Found existing user by TMS ID: {tms_user_id} (db_id={existing_user.id})")
             if existing_user.email != email:
-                print(f"[USER_REPO] 📝 Email changed: {existing_user.email} -> {email}")
+                logger.info(f"📝 [USER_REPO] Email changed: {existing_user.email} -> {email}")
 
         # STEP 2: If not found by TMS ID, try to find by EMAIL (handles TMS ID changes)
         if not existing_user and email:
             existing_user = await self.get_by_email(email)
             if existing_user:
-                print(f"[USER_REPO] ✅ Found existing user by email: {email} (current id={existing_user.id})")
-                print(f"[USER_REPO] ⚠️ TMS ID changed: {existing_user.tms_user_id} -> {tms_user_id}")
-                print(f"[USER_REPO] 📝 Keeping existing user ID to preserve conversations/messages")
+                logger.info(f"✅ [USER_REPO] Found existing user by email: {email} (db_id={existing_user.id})")
+                logger.warning(f"⚠️ [USER_REPO] TMS ID changed: {existing_user.tms_user_id} -> {tms_user_id}")
+                logger.info(f"📝 [USER_REPO] Keeping existing user ID to preserve conversations/messages")
 
         # STEP 3: If user exists (by either identifier), UPDATE that user
         if existing_user:
-            # Update existing user, keeping the original ID to preserve relationships
-            # Only update tms_user_id if we found by TMS ID (not email fallback)
-            # This keeps the stable ID that has all the foreign key references
+            # Update existing user, keeping the original DB ID to preserve relationships
+            # IMPORTANT: Always update tms_user_id to the new value so future lookups work
+            existing_user.tms_user_id = tms_user_id
             existing_user.email = email
             existing_user.username = tms_data.get("username")
             existing_user.first_name = first_name
@@ -154,11 +157,11 @@ class UserRepository(BaseRepository[User]):
 
             await self.db.flush()
             await self.db.refresh(existing_user)
-            print(f"[USER_REPO] ✅ Updated existing user: {existing_user.id}")
+            logger.info(f"✅ [USER_REPO] Updated existing user: {existing_user.id} (tms_user_id={existing_user.tms_user_id}, email={existing_user.email})")
             return existing_user
 
         # STEP 4: No existing user found - create new user with tms_user_id
-        print(f"[USER_REPO] 🆕 Creating new user with id={tms_user_id}")
+        logger.info(f"🆕 [USER_REPO] Creating new user with id={tms_user_id}, email={email}")
 
         user_data = {
             "id": tms_user_id,  # Use TMS user ID (CUID format) as primary key
