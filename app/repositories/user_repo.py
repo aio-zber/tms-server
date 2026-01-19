@@ -69,20 +69,11 @@ class UserRepository(BaseRepository[User]):
         """
         Upsert (insert or update) user from TMS data.
 
-        Uses a DUAL-IDENTIFIER strategy to handle both scenarios:
-        - TMS ID changes but email stays same (e.g., TMS database reseed)
-        - Email changes but TMS ID stays same (e.g., user updates email in TMS)
-
-        Priority order:
-        1. First, try to match by TMS user ID (primary identifier)
-        2. If not found, try to match by EMAIL (fallback identifier)
-        3. If neither found, create new user
-
-        This ensures conversations and messages are preserved regardless of
-        which identifier changes in TMS.
+        Uses TMS user ID as the ONLY identifier for matching users.
+        If the TMS ID doesn't exist, a new user is created.
 
         Args:
-            tms_user_id: TMS user ID (may be new/different from stored ID)
+            tms_user_id: TMS user ID (unique identifier from TMS)
             tms_data: User data from TMS API
 
         Returns:
@@ -115,26 +106,14 @@ class UserRepository(BaseRepository[User]):
 
         logger.info(f"👤 [USER_REPO] Syncing user: tms_id={tms_user_id}, email='{email}', name='{full_name}'")
 
-        # STEP 1: Try to find existing user by TMS ID first (handles email changes)
+        # Find existing user by TMS ID only (no email fallback)
         existing_user = await self.get_by_tms_user_id(tms_user_id)
         if existing_user:
             logger.info(f"✅ [USER_REPO] Found existing user by TMS ID: {tms_user_id} (db_id={existing_user.id})")
-            if existing_user.email != email:
-                logger.info(f"📝 [USER_REPO] Email changed: {existing_user.email} -> {email}")
 
-        # STEP 2: If not found by TMS ID, try to find by EMAIL (handles TMS ID changes)
-        if not existing_user and email:
-            existing_user = await self.get_by_email(email)
-            if existing_user:
-                logger.info(f"✅ [USER_REPO] Found existing user by email: {email} (db_id={existing_user.id})")
-                logger.warning(f"⚠️ [USER_REPO] TMS ID changed: {existing_user.tms_user_id} -> {tms_user_id}")
-                logger.info(f"📝 [USER_REPO] Keeping existing user ID to preserve conversations/messages")
-
-        # STEP 3: If user exists (by either identifier), UPDATE that user
+        # If user exists, UPDATE that user
         if existing_user:
-            # Update existing user, keeping the original DB ID to preserve relationships
-            # IMPORTANT: Always update tms_user_id to the new value so future lookups work
-            existing_user.tms_user_id = tms_user_id
+            # Update existing user with latest data from TMS
             existing_user.email = email
             existing_user.username = tms_data.get("username")
             existing_user.first_name = first_name
@@ -160,7 +139,7 @@ class UserRepository(BaseRepository[User]):
             logger.info(f"✅ [USER_REPO] Updated existing user: {existing_user.id} (tms_user_id={existing_user.tms_user_id}, email={existing_user.email})")
             return existing_user
 
-        # STEP 4: No existing user found - create new user with tms_user_id
+        # No existing user found - create new user with tms_user_id
         logger.info(f"🆕 [USER_REPO] Creating new user with id={tms_user_id}, email={email}")
 
         user_data = {
