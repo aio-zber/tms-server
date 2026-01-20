@@ -268,7 +268,7 @@ async def sso_login(
 
         logger.info(f"✅ SSO Login: Token is fresh (JTI: {jti})")
 
-        # Extract user data from JWT payload
+        # Extract user ID from JWT payload
         tms_user_id = jwt_payload.get("id")
         if not tms_user_id:
             raise HTTPException(
@@ -276,18 +276,27 @@ async def sso_login(
                 detail="JWT token does not contain user ID"
             )
 
-        # Build user data dictionary from JWT claims
-        # JWT tokens from GCGC contain: id, email, name, role, hierarchyLevel, image, iat, exp
-        tms_user_data = {
-            "id": jwt_payload.get("id"),
-            "email": jwt_payload.get("email"),
-            "name": jwt_payload.get("name"),
-            "username": jwt_payload.get("email", "").split("@")[0] if jwt_payload.get("email") else "user",
-            "role": jwt_payload.get("role", "MEMBER"),
-            "hierarchyLevel": jwt_payload.get("hierarchyLevel"),
-            "image": jwt_payload.get("image"),
-            "isActive": True,  # JWT tokens are only issued for active users
-        }
+        # Fetch FRESH user data from TMS API (don't trust JWT claims - they may be stale)
+        # This ensures we always have the correct, up-to-date user information
+        from app.core.tms_client import tms_client, TMSAPIException
+        try:
+            logger.info(f"🔄 SSO Login: Fetching fresh user data from TMS for {tms_user_id}")
+            tms_user_data = await tms_client.get_user_by_id_with_api_key(tms_user_id, use_cache=False)
+            logger.info(f"✅ SSO Login: Got fresh data - name: {tms_user_data.get('name')}, email: {tms_user_data.get('email')}")
+        except TMSAPIException as e:
+            # Fallback to JWT data if TMS API fails (but log warning)
+            logger.warning(f"⚠️ SSO Login: Failed to fetch fresh user data from TMS: {e}")
+            logger.warning(f"⚠️ SSO Login: Falling back to JWT claims (may be stale)")
+            tms_user_data = {
+                "id": jwt_payload.get("id"),
+                "email": jwt_payload.get("email"),
+                "name": jwt_payload.get("name"),
+                "username": jwt_payload.get("email", "").split("@")[0] if jwt_payload.get("email") else "user",
+                "role": jwt_payload.get("role", "MEMBER"),
+                "hierarchyLevel": jwt_payload.get("hierarchyLevel"),
+                "image": jwt_payload.get("image"),
+                "isActive": True,
+            }
 
         # Sync user to local database
         user_repo = UserRepository(db)
