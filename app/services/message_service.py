@@ -1399,7 +1399,7 @@ class MessageService:
             )
 
         # Soft delete all messages in the conversation
-        from sqlalchemy import update
+        from sqlalchemy import update, and_
         from app.models.message import Message
         
         # Update all non-deleted messages to set deleted_at

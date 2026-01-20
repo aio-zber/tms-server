@@ -300,7 +300,7 @@ async def close_poll(
 
             broadcast_data = {
                 "poll_id": str(poll_id),
-                "poll": convert_uuids(poll_response)
+                "poll": convert_uuids(poll_response.model_dump(by_alias=True))
             }
 
             await connection_manager.broadcast_poll_closed(
