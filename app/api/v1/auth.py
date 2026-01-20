@@ -497,8 +497,8 @@ async def validate_token(
     **Note:** This endpoint is faster than `/login` as it doesn't sync user data.
     """
     try:
-        # Just fetch user from TMS without syncing to DB
-        tms_user_data = await tms_client.get_current_user_from_tms(request.token, use_cache=True)
+        # Fetch user from TMS to validate token - don't use cache to ensure fresh validation
+        tms_user_data = await tms_client.get_current_user_from_tms(request.token, use_cache=False)
         
         # Create minimal user response
         user_response = UserResponse(
