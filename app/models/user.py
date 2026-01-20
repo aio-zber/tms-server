@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from app.models.call import CallParticipant
     from app.models.notification_preferences import NotificationPreferences
     from app.models.muted_conversation import MutedConversation
+    from app.models.user_deleted_message import UserDeletedMessage
 
 
 class User(Base, UUIDMixin):
@@ -236,6 +237,12 @@ class User(Base, UUIDMixin):
         back_populates="user",
         cascade="all, delete-orphan",
         doc="Conversations muted by this user"
+    )
+
+    deleted_messages: Mapped[List["UserDeletedMessage"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        doc="Messages deleted 'for me' by this user"
     )
 
     def __repr__(self) -> str:

@@ -12,6 +12,7 @@ from app.schemas.message import (
     MessageMarkReadRequest,
     MessageSearchRequest,
     MessageStatusUpdateResponse,
+    MessageDeleteRequest,
     MessageDeleteResponse,
     MessageStatusResponse
 )
@@ -55,6 +56,7 @@ __all__ = [
     "MessageMarkReadRequest",
     "MessageSearchRequest",
     "MessageStatusUpdateResponse",
+    "MessageDeleteRequest",
     "MessageDeleteResponse",
     "MessageStatusResponse",
     "ConversationCreate",

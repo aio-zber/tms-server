@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from app.models.user import User
     from app.models.conversation import Conversation
     from app.models.poll import Poll
+    from app.models.user_deleted_message import UserDeletedMessage
 
 
 class MessageType(str, enum.Enum):
@@ -169,6 +170,12 @@ class Message(Base, UUIDMixin):
     poll: Mapped["Poll | None"] = relationship(
         back_populates="message",
         uselist=False
+    )
+
+    # Per-user deletions (Messenger-style "Delete for Me")
+    deleted_by_users: Mapped[List["UserDeletedMessage"]] = relationship(
+        back_populates="message",
+        cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:

@@ -350,7 +350,8 @@ class PollService:
             )
 
         # Close poll by setting expires_at to now
-        poll.expires_at = utc_now()
+        # Note: expires_at column is TIMESTAMP WITHOUT TIME ZONE, so strip timezone
+        poll.expires_at = utc_now().replace(tzinfo=None)
         await self.db.commit()
 
         return await self._build_poll_response(poll, user_id)

@@ -21,6 +21,7 @@ from app.schemas.message import (
     MessageMarkReadRequest,
     MessageSearchRequest,
     MessageStatusUpdateResponse,
+    MessageDeleteRequest,
     MessageDeleteResponse,
     MessageReactionResponse
 )
@@ -194,17 +195,21 @@ async def edit_message(
     "/{message_id}",
     response_model=MessageDeleteResponse,
     summary="Delete a message",
-    description="Soft delete a message. Only the sender can delete their own messages."
+    description="Delete a message (Messenger-style). Use delete_for_everyone=true to delete for all users (sender only), "
+                "or delete_for_everyone=false (default) to delete only for yourself."
 )
 async def delete_message(
     message_id: str,
+    delete_request: Optional[MessageDeleteRequest] = None,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Delete a message (soft delete).
+    Delete a message (Messenger-style deletion).
 
     - **message_id**: ID of the message to delete
+    - **delete_for_everyone**: If true, delete for all users (only sender can do this).
+                               If false (default), delete only for yourself.
     """
     service = MessageService(db)
 
@@ -223,7 +228,14 @@ async def delete_message(
             detail="User not found in local database"
         )
 
-    result = await service.delete_message(message_id, user.id)
+    # Default to delete_for_everyone=False if no request body provided
+    delete_for_everyone = delete_request.delete_for_everyone if delete_request else False
+
+    result = await service.delete_message(
+        message_id=message_id,
+        user_id=user.id,
+        delete_for_everyone=delete_for_everyone
+    )
     return result
 
 

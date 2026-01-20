@@ -263,18 +263,40 @@ class MessageStatusUpdateResponse(BaseModel):
         }
 
 
+class MessageDeleteRequest(BaseModel):
+    """Request schema for deleting a message (Messenger-style)."""
+
+    delete_for_everyone: bool = Field(
+        default=False,
+        description="If True, delete for all users (only sender can do this). "
+                    "If False, delete only for the requesting user."
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "delete_for_everyone": False
+            }
+        }
+
+
 class MessageDeleteResponse(BaseModel):
     """Response for message deletion."""
 
     success: bool
     message: str
     deleted_at: datetime
+    deleted_for_everyone: bool = Field(
+        default=False,
+        description="Whether the message was deleted for everyone or just the requesting user"
+    )
 
     class Config:
         json_schema_extra = {
             "example": {
                 "success": True,
                 "message": "Message deleted successfully",
-                "deleted_at": "2025-10-10T10:00:00Z"
+                "deleted_at": "2025-10-10T10:00:00Z",
+                "deleted_for_everyone": False
             }
         }

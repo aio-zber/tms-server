@@ -609,6 +609,10 @@ class MessageService:
         Get messages for a conversation with pagination.
         OPTIMIZED: Uses batch fetching to avoid N+1 problem.
 
+        Implements Messenger-style message visibility:
+        - Messages deleted for everyone (deleted_at set) are shown as "User removed a message"
+        - Messages deleted for me (in user_deleted_messages) are completely hidden
+
         Args:
             conversation_id: Conversation ID
             user_id: Requesting user ID
@@ -622,7 +626,7 @@ class MessageService:
             HTTPException: If no access
         """
         print(f"[MESSAGE_SERVICE] 🚀 get_conversation_messages called for conversation: {conversation_id}, limit: {limit}")
-        
+
         # Verify user is conversation member
         if not await self._verify_conversation_membership(conversation_id, user_id):
             raise HTTPException(
@@ -637,6 +641,25 @@ class MessageService:
             cursor,
             include_deleted=True  # FIX: Include soft-deleted messages (Messenger/Telegram pattern)
         )
+
+        # Filter out messages that are deleted "for me" (per-user deletion)
+        if messages:
+            from app.models.user_deleted_message import UserDeletedMessage
+
+            # Get message IDs that this user has deleted "for me"
+            message_ids = [msg.id for msg in messages]
+            result = await self.db.execute(
+                select(UserDeletedMessage.message_id).where(
+                    UserDeletedMessage.user_id == user_id,
+                    UserDeletedMessage.message_id.in_(message_ids)
+                )
+            )
+            user_deleted_ids = set(row[0] for row in result.all())
+
+            # Filter out per-user deleted messages
+            if user_deleted_ids:
+                print(f"[MESSAGE_SERVICE] 🗑️ Filtering out {len(user_deleted_ids)} per-user deleted messages")
+                messages = [msg for msg in messages if msg.id not in user_deleted_ids]
 
         print(f"[MESSAGE_SERVICE] 📦 Fetched {len(messages)} messages from DB")
         
@@ -875,14 +898,20 @@ class MessageService:
     async def delete_message(
         self,
         message_id: str,
-        user_id: str
+        user_id: str,
+        delete_for_everyone: bool = False
     ) -> Dict[str, Any]:
         """
-        Delete a message (soft delete).
+        Delete a message (Messenger-style deletion).
+
+        Supports two modes:
+        - Delete for Me: Only hides the message for the requesting user
+        - Delete for Everyone: Soft deletes the message for all users (sender only)
 
         Args:
             message_id: Message ID
-            user_id: User ID (must be sender)
+            user_id: User ID
+            delete_for_everyone: If True, delete for all users (sender only can do this)
 
         Returns:
             Success response with deleted_at timestamp
@@ -890,6 +919,9 @@ class MessageService:
         Raises:
             HTTPException: If not found or no permission
         """
+        import logging
+        logger = logging.getLogger(__name__)
+
         message = await self.message_repo.get(message_id)
 
         if not message:
@@ -898,49 +930,90 @@ class MessageService:
                 detail="Message not found"
             )
 
-        if message.sender_id != user_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You can only delete your own messages"
-            )
-
+        # Check if message is already deleted for everyone
         if message.deleted_at:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Message already deleted"
+                detail="Message already deleted for everyone"
             )
 
-        # Soft delete (marks deleted_at timestamp)
-        deleted_message = await self.message_repo.soft_delete(message_id)
-        await self.db.commit()
-
-        # Messenger pattern: Broadcast message:edit event to show "You removed a message"
-        # The message stays in the chat but with replaced content
-        try:
-            import logging
-            logger = logging.getLogger(__name__)
-
-            # Reload with relations and enrich (same pattern as edit_message)
-            deleted_message_with_relations = await self.message_repo.get_with_relations(message_id)
-            enriched_message = await self._enrich_message_with_user_data(deleted_message_with_relations, user_id)
-
-            # Broadcast message:edit event (clients will show "You removed a message")
-            await self.ws_manager.broadcast_message_edited(
-                conversation_id=message.conversation_id,
-                message_data=enriched_message
+        # Verify user has access to the conversation
+        if not await self._verify_conversation_membership(message.conversation_id, user_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have access to this conversation"
             )
 
-            logger.info(f"✅ Broadcasted message:edit event for deleted message {message_id}")
-        except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Failed to broadcast deleted message update: {e}", exc_info=True)
+        deleted_at = utc_now()
 
-        return {
-            "success": True,
-            "message": "Message deleted successfully",
-            "deleted_at": deleted_message.deleted_at
-        }
+        if delete_for_everyone:
+            # Delete for Everyone: Only sender can do this
+            if message.sender_id != user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Only the sender can delete a message for everyone"
+                )
+
+            # Soft delete (marks deleted_at timestamp) - affects all users
+            deleted_message = await self.message_repo.soft_delete(message_id)
+            await self.db.commit()
+
+            # Broadcast message:edit event so all clients update
+            try:
+                deleted_message_with_relations = await self.message_repo.get_with_relations(message_id)
+                enriched_message = await self._enrich_message_with_user_data(deleted_message_with_relations, user_id)
+
+                await self.ws_manager.broadcast_message_edited(
+                    conversation_id=message.conversation_id,
+                    message_data=enriched_message
+                )
+                logger.info(f"[DELETE_MESSAGE] Broadcasted delete_for_everyone for message {message_id}")
+            except Exception as e:
+                logger.error(f"[DELETE_MESSAGE] Failed to broadcast: {e}", exc_info=True)
+
+            return {
+                "success": True,
+                "message": "Message deleted for everyone",
+                "deleted_at": deleted_message.deleted_at,
+                "deleted_for_everyone": True
+            }
+        else:
+            # Delete for Me: Add entry to user_deleted_messages table
+            from app.models.user_deleted_message import UserDeletedMessage
+            from sqlalchemy import select
+
+            # Check if already deleted for this user
+            result = await self.db.execute(
+                select(UserDeletedMessage).where(
+                    UserDeletedMessage.user_id == user_id,
+                    UserDeletedMessage.message_id == message_id
+                )
+            )
+            existing = result.scalar_one_or_none()
+
+            if existing:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Message already deleted for you"
+                )
+
+            # Create per-user deletion record
+            user_deletion = UserDeletedMessage(
+                user_id=user_id,
+                message_id=message_id,
+                deleted_at=deleted_at
+            )
+            self.db.add(user_deletion)
+            await self.db.commit()
+
+            logger.info(f"[DELETE_MESSAGE] Deleted message {message_id} for user {user_id} only")
+
+            return {
+                "success": True,
+                "message": "Message deleted for you",
+                "deleted_at": deleted_at,
+                "deleted_for_everyone": False
+            }
 
     async def add_reaction(
         self,
@@ -1379,18 +1452,24 @@ class MessageService:
         user_id: str
     ) -> int:
         """
-        Clear all messages in a conversation (soft delete).
+        Clear all messages in a conversation for the current user only (Messenger-style).
+
+        This creates per-user deletion records for all messages in the conversation,
+        allowing each user to clear their own chat history without affecting others.
 
         Args:
             conversation_id: Conversation ID
             user_id: Requesting user ID
 
         Returns:
-            Number of messages deleted
+            Number of messages cleared for this user
 
         Raises:
             HTTPException: If no access to conversation
         """
+        import logging
+        logger = logging.getLogger(__name__)
+
         # Verify user has access
         if not await self._verify_conversation_membership(conversation_id, user_id):
             raise HTTPException(
@@ -1398,25 +1477,51 @@ class MessageService:
                 detail="You don't have access to this conversation"
             )
 
-        # Soft delete all messages in the conversation
-        from sqlalchemy import update, and_
+        from sqlalchemy import select, and_
         from app.models.message import Message
-        
-        # Update all non-deleted messages to set deleted_at
+        from app.models.user_deleted_message import UserDeletedMessage
+
+        # Get all message IDs in this conversation that aren't already deleted for everyone
+        # and aren't already deleted for this user
+        subquery = select(UserDeletedMessage.message_id).where(
+            UserDeletedMessage.user_id == user_id
+        ).scalar_subquery()
+
         result = await self.db.execute(
-            update(Message)
-            .where(
+            select(Message.id).where(
                 and_(
                     Message.conversation_id == conversation_id,
-                    Message.deleted_at.is_(None)
+                    Message.deleted_at.is_(None),  # Not deleted for everyone
+                    Message.id.not_in(subquery)     # Not already deleted for this user
                 )
             )
-            .values(deleted_at=utc_now())
         )
+        message_ids = [row[0] for row in result.all()]
 
+        if not message_ids:
+            logger.info(f"[CLEAR_CONVERSATION] No messages to clear for user {user_id}")
+            return 0
+
+        # Batch insert per-user deletion records
+        deleted_at = utc_now()
+        user_deletions = [
+            UserDeletedMessage(
+                user_id=user_id,
+                message_id=msg_id,
+                deleted_at=deleted_at
+            )
+            for msg_id in message_ids
+        ]
+
+        self.db.add_all(user_deletions)
         await self.db.commit()
 
-        return result.rowcount
+        logger.info(
+            f"[CLEAR_CONVERSATION] Cleared {len(message_ids)} messages "
+            f"for user {user_id} in conversation {conversation_id}"
+        )
+
+        return len(message_ids)
 
     async def handle_file_upload(
         self,
