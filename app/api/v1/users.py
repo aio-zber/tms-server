@@ -286,3 +286,29 @@ async def invalidate_user_cache(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to invalidate cache: {str(e)}"
         )
+
+
+@router.get("/presence/online", response_model=list[str])
+async def get_online_users(
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Get list of currently online user IDs.
+
+    Returns the user IDs (UUIDs) of all users who have active WebSocket connections.
+    This is used to display online status indicators (green dots) in the UI.
+
+    **Authentication**: Required
+
+    **Returns**: List of online user IDs (local UUIDs)
+
+    **Messenger-style Behavior**:
+    - User is online when they have at least one active WebSocket connection
+    - User goes offline when all their connections are closed
+    - Multiple device support: user stays online if ANY device is connected
+    """
+    from app.core.websocket import connection_manager
+
+    # Return list of user IDs that have active sessions
+    online_user_ids = list(connection_manager.user_sessions.keys())
+    return online_user_ids
