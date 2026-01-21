@@ -468,7 +468,19 @@ class PollService:
             option_responses.append(option_response)
 
         # Check if poll is closed
-        is_closed = poll.expires_at is not None and poll.expires_at < utc_now()
+        # Note: expires_at can be naive (from TIMESTAMP WITHOUT TIME ZONE column)
+        # We need to handle comparison with timezone-aware utc_now()
+        is_closed = False
+        if poll.expires_at is not None:
+            now = utc_now()
+            # If expires_at is naive, treat it as UTC for comparison
+            expires_at = poll.expires_at
+            if expires_at.tzinfo is None:
+                # Naive datetime - compare with naive UTC
+                is_closed = expires_at < now.replace(tzinfo=None)
+            else:
+                # Timezone-aware - compare directly
+                is_closed = expires_at < now
 
         # Use Pydantic schema for proper camelCase serialization
         poll_response = PollResponse(
