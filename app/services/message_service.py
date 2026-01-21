@@ -475,7 +475,14 @@ class MessageService:
         print(f"[MESSAGE_SERVICE] 📊 Creating statuses for {len(members)} members (message_id={message.id})")
 
         # Create message statuses for all members
+        # Messenger-style: DELIVERED if recipient is online, SENT if offline
         try:
+            # Get list of online user IDs from WebSocket connection manager
+            online_user_ids = set()
+            if self.ws_manager and hasattr(self.ws_manager, 'user_sessions'):
+                online_user_ids = set(self.ws_manager.user_sessions.keys())
+            print(f"[MESSAGE_SERVICE] 🟢 Online users: {len(online_user_ids)}")
+
             for member in members:
                 if member.user_id == sender_id:
                     # Sender: mark as read immediately
@@ -488,12 +495,20 @@ class MessageService:
                     # Check if user is blocked
                     is_blocked = await self._check_user_blocked(sender_id, member.user_id)
                     if not is_blocked:
-                        # Recipients: mark as sent
-                        await self.status_repo.upsert_status(
-                            message.id,
-                            member.user_id,
-                            MessageStatusType.SENT
-                        )
+                        # Messenger-style: DELIVERED if online, SENT if offline
+                        if member.user_id in online_user_ids:
+                            await self.status_repo.upsert_status(
+                                message.id,
+                                member.user_id,
+                                MessageStatusType.DELIVERED
+                            )
+                            print(f"[MESSAGE_SERVICE] ✓✓ Marked DELIVERED for online user {member.user_id}")
+                        else:
+                            await self.status_repo.upsert_status(
+                                message.id,
+                                member.user_id,
+                                MessageStatusType.SENT
+                            )
             print(f"[MESSAGE_SERVICE] ✅ Created statuses for all members")
         except Exception as status_error:
             print(f"[MESSAGE_SERVICE] ❌ Failed to create message statuses: {status_error}")
@@ -1388,6 +1403,63 @@ class MessageService:
             "success": True,
             "updated_count": count,
             "message": f"Marked {count} messages as delivered"
+        }
+
+    async def mark_all_messages_delivered_for_user(
+        self,
+        user_id: str
+    ) -> Dict[str, Any]:
+        """
+        Mark all pending SENT messages as DELIVERED for a user across all conversations.
+
+        Messenger-style pattern: Called when user comes online (connects to WebSocket).
+        This ensures all messages sent while user was offline transition to DELIVERED
+        as soon as they're online.
+
+        Args:
+            user_id: User ID who just came online
+
+        Returns:
+            Success response with count and list of affected conversation IDs
+        """
+        # Get all conversations where user is a member
+        from app.models.conversation import ConversationMember
+        result = await self.db.execute(
+            select(ConversationMember.conversation_id)
+            .where(ConversationMember.user_id == user_id)
+        )
+        conversation_ids = [row[0] for row in result.fetchall()]
+
+        if not conversation_ids:
+            return {
+                "success": True,
+                "updated_count": 0,
+                "conversation_ids": [],
+                "message": "No conversations found"
+            }
+
+        total_count = 0
+        affected_conversations = []
+
+        # Mark messages as delivered in each conversation
+        for conv_id in conversation_ids:
+            count = await self.status_repo.mark_messages_as_delivered(
+                conversation_id=conv_id,
+                user_id=user_id
+            )
+            if count > 0:
+                total_count += count
+                affected_conversations.append(conv_id)
+
+        await self.db.commit()
+
+        print(f"[MESSAGE_SERVICE] ✅ Marked {total_count} messages as DELIVERED for user {user_id} across {len(affected_conversations)} conversations")
+
+        return {
+            "success": True,
+            "updated_count": total_count,
+            "conversation_ids": affected_conversations,
+            "message": f"Marked {total_count} messages as delivered"
         }
 
     async def search_messages(
