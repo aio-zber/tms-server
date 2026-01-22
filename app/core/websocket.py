@@ -155,7 +155,7 @@ class ConnectionManager:
                     # This happens regardless of which conversation they're viewing
                     try:
                         from app.services.message_service import MessageService
-                        message_service = MessageService(db, self)
+                        message_service = MessageService(db)
 
                         result = await message_service.mark_all_messages_delivered_for_user(
                             user_id=user.id
