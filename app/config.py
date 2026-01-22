@@ -68,7 +68,7 @@ class Settings(BaseSettings):
     oss_region: str = Field(default="cn-hangzhou", description="OSS region")
 
     # File Upload
-    max_upload_size: int = Field(default=10485760, description="Max file upload size in bytes (10MB)")
+    max_upload_size: int = Field(default=104857600, description="Max file upload size in bytes (100MB)")
     allowed_file_types: str = Field(
         default="image/jpeg,image/png,image/gif,application/pdf",
         description="Comma-separated list of allowed MIME types"
