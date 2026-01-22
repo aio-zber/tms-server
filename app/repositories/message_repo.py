@@ -756,6 +756,78 @@ class MessageStatusRepository(BaseRepository[MessageStatus]):
 
             return result.rowcount if result.rowcount else 0
 
+    async def mark_all_as_read_in_conversation(
+        self,
+        conversation_id: str,
+        user_id: str
+    ) -> Tuple[int, List[str]]:
+        """
+        Mark all unread messages (SENT or DELIVERED) as READ for a user in a conversation.
+
+        Implements Messenger-style pattern: when user opens a conversation,
+        all messages from other users are marked as READ.
+
+        Args:
+            conversation_id: Conversation UUID
+            user_id: User UUID (the reader)
+
+        Returns:
+            Tuple of (count of updated statuses, list of affected message IDs)
+        """
+        from app.models.message import Message
+        from sqlalchemy import update
+        import logging
+        logger = logging.getLogger(__name__)
+
+        logger.info(
+            f"[MESSAGE_REPO] 📖 mark_all_as_read_in_conversation: "
+            f"conversation_id={conversation_id}, user_id={user_id}"
+        )
+
+        # Get all message IDs in conversation that are not yet READ for this user
+        # Only mark messages from OTHER users (not the reader's own messages)
+        stmt = (
+            select(MessageStatus.message_id)
+            .join(Message, Message.id == MessageStatus.message_id)
+            .where(
+                and_(
+                    Message.conversation_id == conversation_id,
+                    Message.sender_id != user_id,  # Only other users' messages
+                    MessageStatus.user_id == user_id,
+                    MessageStatus.status.in_([MessageStatusType.SENT, MessageStatusType.DELIVERED]),
+                    Message.deleted_at.is_(None)
+                )
+            )
+        )
+        result = await self.db.execute(stmt)
+        unread_message_ids = [str(row[0]) for row in result.all()]
+
+        if not unread_message_ids:
+            logger.info(f"[MESSAGE_REPO] ✅ No unread messages to mark as READ")
+            return 0, []
+
+        logger.info(f"[MESSAGE_REPO] 📝 Found {len(unread_message_ids)} unread messages to mark as READ")
+
+        # Bulk update to READ
+        update_stmt = (
+            update(MessageStatus)
+            .where(
+                and_(
+                    MessageStatus.message_id.in_(unread_message_ids),
+                    MessageStatus.user_id == user_id,
+                    MessageStatus.status.in_([MessageStatusType.SENT, MessageStatusType.DELIVERED])
+                )
+            )
+            .values(status=MessageStatusType.READ)
+        )
+        result = await self.db.execute(update_stmt)
+        await self.db.flush()
+
+        count = result.rowcount if result.rowcount else 0
+        logger.info(f"[MESSAGE_REPO] ✅ Marked {count} messages as READ")
+
+        return count, unread_message_ids
+
 
 class MessageReactionRepository(BaseRepository[MessageReaction]):
     """Repository for message reaction operations."""

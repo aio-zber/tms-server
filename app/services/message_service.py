@@ -1337,6 +1337,87 @@ class MessageService:
             "message": f"Marked {count} messages as read"
         }
 
+    async def mark_conversation_messages_read(
+        self,
+        conversation_id: str,
+        user_id: str
+    ) -> Dict[str, Any]:
+        """
+        Mark all unread messages in a conversation as READ (Messenger-style).
+
+        Called automatically when user opens/joins a conversation.
+        Transitions messages from SENT/DELIVERED → READ for all messages
+        from other users in the conversation.
+
+        Args:
+            conversation_id: Conversation ID
+            user_id: User ID (the reader)
+
+        Returns:
+            Success response with updated count
+
+        Raises:
+            HTTPException: If user is not a member of the conversation
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        logger.info(
+            f"[MESSAGE_SERVICE] 📖 mark_conversation_messages_read: "
+            f"conversation_id={conversation_id}, user_id={user_id}"
+        )
+
+        # Verify user is conversation member
+        if not await self._verify_conversation_membership(conversation_id, user_id):
+            logger.warning(
+                f"[MESSAGE_SERVICE] ⛔ Membership verification failed: "
+                f"user_id={user_id}, conversation_id={conversation_id}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You are not a member of this conversation"
+            )
+
+        # Mark all unread messages as READ
+        count, message_ids = await self.status_repo.mark_all_as_read_in_conversation(
+            conversation_id=conversation_id,
+            user_id=user_id
+        )
+
+        if count > 0:
+            await self.db.commit()
+
+            # Invalidate cache
+            try:
+                await invalidate_unread_count_cache(str(user_id), str(conversation_id))
+                await invalidate_total_unread_count_cache(str(user_id))
+            except Exception as e:
+                logger.warning(f"[MESSAGE_SERVICE] Cache invalidation failed (non-critical): {e}")
+
+            # Broadcast status updates via WebSocket
+            try:
+                for message_id in message_ids:
+                    await self.ws_manager.broadcast_message_status(
+                        conversation_id,
+                        message_id,
+                        user_id,
+                        MessageStatusType.READ.value
+                    )
+                logger.info(f"[MESSAGE_SERVICE] ✅ Broadcasted {len(message_ids)} READ status updates")
+            except Exception as e:
+                logger.warning(f"[MESSAGE_SERVICE] WebSocket broadcast failed (non-critical): {e}")
+
+        logger.info(
+            f"[MESSAGE_SERVICE] ✅ mark_conversation_messages_read completed: "
+            f"updated_count={count}"
+        )
+
+        return {
+            "success": True,
+            "updated_count": count,
+            "message": f"Marked {count} messages as read"
+        }
+
     async def mark_messages_delivered(
         self,
         conversation_id: str,

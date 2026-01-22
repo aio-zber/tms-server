@@ -309,8 +309,8 @@ class ConnectionManager:
                 try:
                     from app.services.message_service import MessageService
 
-                    message_service = MessageService(db, self)
-                    result = await message_service.mark_messages_read(
+                    message_service = MessageService(db)
+                    result = await message_service.mark_conversation_messages_read(
                         conversation_id=conversation_id,
                         user_id=user_id
                     )
