@@ -5,7 +5,7 @@ Provides endpoints for creating, retrieving, and managing conversations.
 from typing import Optional
 # UUID import removed - using str for ID types
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -443,6 +443,104 @@ async def mark_conversation_read(
     )
 
     return result
+
+
+@router.post(
+    "/{conversation_id}/avatar",
+    response_model=ConversationResponse,
+    summary="Upload conversation avatar",
+    description="Upload an avatar image for a group conversation. Only admins and members can upload."
+)
+async def upload_conversation_avatar(
+    conversation_id: str,
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Upload avatar for a group conversation.
+
+    - **conversation_id**: ID of the conversation
+    - **file**: Avatar image file (JPEG, PNG, GIF, WebP, max 5MB)
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    try:
+        service = ConversationService(db)
+        user = await get_current_user_from_db(current_user, db)
+
+        # Verify user is a member of the conversation
+        from app.repositories.conversation_repo import ConversationMemberRepository
+        member_repo = ConversationMemberRepository(db)
+
+        if not await member_repo.is_member(conversation_id, user.id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You are not a member of this conversation"
+            )
+
+        # Get conversation to verify it's a group
+        from app.repositories.conversation_repo import ConversationRepository
+        from app.models.conversation import ConversationType
+        conv_repo = ConversationRepository(db)
+        conversation = await conv_repo.get(conversation_id)
+
+        if not conversation:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Conversation not found"
+            )
+
+        if conversation.type == ConversationType.DM:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot set avatar for DM conversations"
+            )
+
+        # Import OSS service and validate/upload file
+        from app.services.oss_service import OSSService
+
+        oss_service = OSSService()
+
+        # Allowed image types for avatars
+        allowed_types = [
+            'image/jpeg',
+            'image/png',
+            'image/gif',
+            'image/webp'
+        ]
+        max_size = 5 * 1024 * 1024  # 5MB max for avatars
+
+        # Validate file
+        oss_service.validate_file(file, allowed_types, max_size)
+
+        # Upload to OSS with conversation-specific folder
+        folder = f"conversations/{conversation_id}/avatars"
+        upload_result = await oss_service.upload_file(file, folder)
+
+        avatar_url = upload_result["url"]
+        logger.info(f"Uploaded avatar for conversation {conversation_id}: {upload_result['oss_key']}")
+
+        # Update conversation with new avatar URL
+        updated_conversation = await service.update_conversation(
+            conversation_id=conversation_id,
+            user_id=user.id,
+            avatar_url=avatar_url
+        )
+
+        return updated_conversation
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        logger.error(f"Failed to upload conversation avatar: {type(e).__name__}: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to upload avatar: {str(e)}"
+        )
 
 
 # MOVED TO LINE 156 - must come before /{conversation_id} route
