@@ -176,6 +176,7 @@ class ConversationResponse(BaseModel):
     id: str
     type: ConversationType
     name: Optional[str]
+    display_name: Optional[str] = Field(None, serialization_alias="display_name")  # Computed: DM = other user's name, Group = group name
     avatar_url: Optional[str] = Field(None, serialization_alias="avatarUrl")
     created_by: Optional[str] = Field(None, serialization_alias="createdBy")
     created_at: datetime = Field(serialization_alias="createdAt")
