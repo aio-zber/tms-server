@@ -126,9 +126,9 @@ class ConversationService:
         conversation_dict["members"] = enriched_members
         conversation_dict["member_count"] = len(enriched_members)
 
-        # Compute display_name for DMs (Telegram/Messenger pattern)
-        # For DMs: display the OTHER user's name
-        # For groups: use the group name
+        # Compute display_name and avatar_url for DMs (Telegram/Messenger pattern)
+        # For DMs: display the OTHER user's name and profile image
+        # For groups: use the group name and group avatar
         if conversation.type == ConversationType.DM:
             # Find the other user (not current user)
             other_members = [m for m in enriched_members if m["user_id"] != user_id]
@@ -145,6 +145,13 @@ class ConversationService:
                     display_name = other_user_data.get("email", "Direct Message")
 
                 conversation_dict["display_name"] = display_name
+
+                # For DMs, use the other user's profile image as avatar (Messenger/Telegram pattern)
+                other_user_image = other_user_data.get("image")
+                if other_user_image:
+                    conversation_dict["avatar_url"] = other_user_image
+                    print(f"[CONVERSATION_SERVICE] 💬 DM avatar_url set to other user's image")
+
                 print(f"[CONVERSATION_SERVICE] 💬 DM display_name: '{display_name}'")
             else:
                 conversation_dict["display_name"] = "Direct Message"
