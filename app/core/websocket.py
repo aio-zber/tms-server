@@ -151,6 +151,38 @@ class ConnectionManager:
                     from app.core.cache import set_user_presence
                     await set_user_presence(str(user.id), 'online')
 
+                    # Telegram/Messenger pattern: Auto-join ALL conversation rooms on connect.
+                    # One query fetches all conversation IDs, then joins rooms in-memory.
+                    # This replaces per-room client-side join_conversation calls that each
+                    # triggered a DB query and caused connection pool exhaustion.
+                    try:
+                        from app.models.conversation import ConversationMember
+
+                        conv_result = await db.execute(
+                            select(ConversationMember.conversation_id).where(
+                                ConversationMember.user_id == user.id
+                            )
+                        )
+                        conversation_ids = [row[0] for row in conv_result.fetchall()]
+
+                        for conv_id in conversation_ids:
+                            room_name = f"conversation:{conv_id}"
+                            await self.sio.enter_room(sid, room_name)
+
+                            # Track in internal conversation_rooms
+                            if conv_id not in self.conversation_rooms:
+                                self.conversation_rooms[conv_id] = set()
+                            self.conversation_rooms[conv_id].add(sid)
+
+                        logger.info(f"[connect] Auto-joined {len(conversation_ids)} conversation rooms for user {user.id}")
+
+                        # Notify client which rooms were joined
+                        await self.sio.emit('rooms_joined', {
+                            'conversation_ids': [str(cid) for cid in conversation_ids]
+                        }, to=sid)
+                    except Exception as room_error:
+                        logger.error(f"[connect] Failed to auto-join rooms: {room_error}", exc_info=True)
+
                     # Messenger-style: Mark all pending SENT messages as DELIVERED when user comes online
                     # This happens regardless of which conversation they're viewing
                     try:
@@ -223,110 +255,55 @@ class ConnectionManager:
         @self.sio.event
         async def join_conversation(sid, data):
             """
-            Join a conversation room.
+            Join a conversation room and mark messages as read.
+
+            Called when the user opens a specific chat. All rooms are already
+            joined on connect (Telegram pattern), so this only handles:
+            1. Ensuring room membership (in case of new conversations created after connect)
+            2. Marking messages as READ (Messenger pattern: opening = reading)
 
             Expected data: {'conversation_id': 'uuid'}
             """
             try:
-                logger.info(f"[join_conversation] Received data: {data}")
-                logger.info(f"[join_conversation] SID: {sid}")
-
-                conversation_id = data['conversation_id']  # Keep as string (supports both UUID and CUID formats)
-                logger.info(f"[join_conversation] Conversation ID: {conversation_id}")
-
+                conversation_id = data['conversation_id']
                 user_id = self.connections.get(sid)
-                logger.info(f"[join_conversation] User ID from connection: {user_id}")
 
                 if not user_id:
-                    logger.warning(f"[join_conversation] User not authenticated - sid: {sid}")
-                    await self.sio.emit('error', {
-                        'message': 'Unauthorized'
-                    }, to=sid)
+                    await self.sio.emit('error', {'message': 'Unauthorized'}, to=sid)
                     return
 
-                # Verify user is member of conversation
-                from app.core.database import AsyncSessionLocal
-                from app.models.conversation import ConversationMember
-                from sqlalchemy import select
-
-                async with AsyncSessionLocal() as db:
-                    result = await db.execute(
-                        select(ConversationMember).where(
-                            ConversationMember.conversation_id == conversation_id,
-                            ConversationMember.user_id == user_id
-                        )
-                    )
-                    member = result.scalar_one_or_none()
-                    logger.info(f"[join_conversation] ConversationMember found: {member is not None}")
-
-                    if not member:
-                        logger.warning(f"[join_conversation] User {user_id} not a member of conversation {conversation_id}")
-                        await self.sio.emit('error', {
-                            'message': 'Not a member of this conversation'
-                        }, to=sid)
-                        return
-
-                # Join Socket.IO room
                 room_name = f"conversation:{conversation_id}"
-                logger.info(f"[join_conversation] Joining Socket.IO room: {room_name}")
-                logger.info(f"[join_conversation] SID being added: {sid}")
-                
-                await self.sio.enter_room(sid, room_name)
-                
-                # VERIFY the room actually exists in Socket.IO manager
-                try:
-                    # Access rooms from the default namespace ('/')
-                    namespace = '/'
-                    if hasattr(self.sio.manager, 'rooms'):
-                        # For AsyncManager, rooms are stored per namespace
-                        if namespace in self.sio.manager.rooms:
-                            namespace_rooms = self.sio.manager.rooms[namespace]
-                            if room_name in namespace_rooms:
-                                logger.info(f"[join_conversation] ✅ VERIFIED: Room '{room_name}' exists in Socket.IO manager")
-                                logger.info(f"[join_conversation] SIDs in Socket.IO room: {namespace_rooms[room_name]}")
-                            else:
-                                logger.error(f"[join_conversation] ❌ PROBLEM: Room '{room_name}' NOT in Socket.IO manager after enter_room()!")
-                                logger.error(f"[join_conversation] Available rooms in namespace: {list(namespace_rooms.keys())[:10]}")  # Show first 10
-                        else:
-                            logger.error(f"[join_conversation] Namespace '/' not found in manager.rooms")
-                            logger.error(f"[join_conversation] Available namespaces: {list(self.sio.manager.rooms.keys())}")
-                    else:
-                        logger.warning(f"[join_conversation] Cannot access manager.rooms - using alternative verification")
-                except Exception as e:
-                    logger.error(f"[join_conversation] Error checking Socket.IO rooms: {e}", exc_info=True)
 
-                # Track in conversation rooms
+                # Ensure room is joined (idempotent — covers new conversations
+                # created after the initial connect auto-join)
+                await self.sio.enter_room(sid, room_name)
+
                 if conversation_id not in self.conversation_rooms:
                     self.conversation_rooms[conversation_id] = set()
                 self.conversation_rooms[conversation_id].add(sid)
 
-                logger.info(f"[join_conversation] SUCCESS: User {user_id} joined conversation {conversation_id}")
-                logger.info(f"[join_conversation] Active rooms for conversation {conversation_id}: {len(self.conversation_rooms[conversation_id])} members")
-                logger.info(f"[join_conversation] Our internal tracking - SIDs: {self.conversation_rooms[conversation_id]}")
-
-                # Messenger-style: Mark messages as READ when user opens conversation
-                # DELIVERED is handled when user comes online (connect handler) or message is sent to online user
+                # Mark messages as READ when user opens this conversation
                 try:
+                    from app.core.database import AsyncSessionLocal
                     from app.services.message_service import MessageService
 
-                    message_service = MessageService(db)
-                    result = await message_service.mark_conversation_messages_read(
-                        conversation_id=conversation_id,
-                        user_id=user_id
-                    )
+                    async with AsyncSessionLocal() as db:
+                        message_service = MessageService(db)
+                        result = await message_service.mark_conversation_messages_read(
+                            conversation_id=conversation_id,
+                            user_id=user_id
+                        )
 
-                    if result.get('updated_count', 0) > 0:
-                        logger.info(f"[join_conversation] Auto-marked {result['updated_count']} messages as READ")
+                        if result.get('updated_count', 0) > 0:
+                            logger.info(f"[join_conversation] Marked {result['updated_count']} messages as READ in {conversation_id}")
 
-                        # Broadcast read status to conversation room
-                        await self.sio.emit('messages_read', {
-                            'user_id': str(user_id),
-                            'conversation_id': str(conversation_id),
-                            'count': result['updated_count']
-                        }, room=room_name)
+                            await self.sio.emit('messages_read', {
+                                'user_id': str(user_id),
+                                'conversation_id': str(conversation_id),
+                                'count': result['updated_count']
+                            }, room=room_name)
                 except Exception as read_error:
-                    # Don't fail join if read marking fails
-                    logger.error(f"[join_conversation] Failed to auto-mark read: {read_error}", exc_info=True)
+                    logger.error(f"[join_conversation] Failed to mark read: {read_error}", exc_info=True)
 
                 await self.sio.emit('joined_conversation', {
                     'conversation_id': str(conversation_id)
