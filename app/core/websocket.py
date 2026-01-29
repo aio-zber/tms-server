@@ -49,6 +49,8 @@ class ConnectionManager:
                     logger.error(f"Failed to create Redis adapter: {redis_err}. Falling back to in-memory.")
 
             # Create async Socket.IO server
+            # ping_timeout: How long to wait for pong response (120s for background tab tolerance)
+            # ping_interval: How often to send ping (25s - frequent enough to detect real disconnects)
             self.sio = socketio.AsyncServer(
                 async_mode='asgi',
                 cors_allowed_origins=cors_origins,
@@ -56,7 +58,7 @@ class ConnectionManager:
                 logger=False,
                 engineio_logger=False,
                 ping_timeout=settings.ws_heartbeat_interval,
-                ping_interval=settings.ws_heartbeat_interval // 2,
+                ping_interval=25,
             )
 
             logger.info("Socket.IO server initialized successfully")
@@ -389,6 +391,24 @@ class ConnectionManager:
 
             except Exception as e:
                 logger.error(f"Error in typing_stop: {e}")
+
+        @self.sio.event
+        async def keepalive(sid, data=None):
+            """
+            Client keepalive ping — keeps the connection alive when the browser
+            tab is in the background. Browsers throttle JS timers in inactive tabs,
+            which can cause Socket.IO ping/pong to timeout. The client sends this
+            event via a Web Worker (not throttled) to maintain the connection.
+
+            Also refreshes Redis presence TTL to prevent expiry.
+            """
+            user_id = self.connections.get(sid)
+            if user_id:
+                # Refresh presence TTL in Redis
+                from app.core.cache import set_user_presence
+                await set_user_presence(str(user_id), 'online')
+                # Acknowledge keepalive
+                await self.sio.emit('keepalive_ack', {}, to=sid)
 
     async def broadcast_new_message(
         self,

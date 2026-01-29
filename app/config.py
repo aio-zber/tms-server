@@ -79,7 +79,10 @@ class Settings(BaseSettings):
     rate_limit_per_hour: int = Field(default=1000, description="API rate limit per hour per user")
 
     # WebSocket
-    ws_heartbeat_interval: int = Field(default=30, description="WebSocket heartbeat interval in seconds")
+    # Increased timeout to 120s to support background tabs (Messenger pattern)
+    # Browsers throttle JS timers in background tabs, so Socket.IO pong responses
+    # may be delayed. 120s timeout prevents false disconnects.
+    ws_heartbeat_interval: int = Field(default=120, description="WebSocket ping timeout in seconds")
     ws_max_connections: int = Field(default=10000, description="Maximum concurrent WebSocket connections")
 
     # Cache TTL (in seconds)
