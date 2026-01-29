@@ -307,8 +307,8 @@ async def get_online_users(
     - User goes offline when all their connections are closed
     - Multiple device support: user stays online if ANY device is connected
     """
-    from app.core.websocket import connection_manager
+    from app.core.cache import get_online_user_ids
 
-    # Return list of user IDs that have active sessions
-    online_user_ids = list(connection_manager.user_sessions.keys())
-    return online_user_ids
+    # Return globally accurate online users from Redis (all workers)
+    online_user_ids = await get_online_user_ids()
+    return list(online_user_ids)

@@ -2,9 +2,12 @@
 Message service containing business logic for messaging operations.
 Handles message CRUD, reactions, status updates, and integrations.
 """
+import logging
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
 # UUID import removed - using str for ID types
+
+logger = logging.getLogger(__name__)
 
 from app.utils.datetime_utils import utc_now, to_iso_utc
 
@@ -477,11 +480,9 @@ class MessageService:
         # Create message statuses for all members
         # Messenger-style: DELIVERED if recipient is online, SENT if offline
         try:
-            # Get list of online user IDs from WebSocket connection manager
-            online_user_ids = set()
-            if self.ws_manager and hasattr(self.ws_manager, 'user_sessions'):
-                online_user_ids = set(self.ws_manager.user_sessions.keys())
-            print(f"[MESSAGE_SERVICE] 🟢 Online users: {len(online_user_ids)}")
+            # Get globally online users from Redis (accurate across all workers)
+            from app.core.cache import get_online_user_ids
+            online_user_ids = await get_online_user_ids()
 
             for member in members:
                 if member.user_id == sender_id:
@@ -496,20 +497,18 @@ class MessageService:
                     is_blocked = await self._check_user_blocked(sender_id, member.user_id)
                     if not is_blocked:
                         # Messenger-style: DELIVERED if online, SENT if offline
-                        if member.user_id in online_user_ids:
+                        if str(member.user_id) in online_user_ids:
                             await self.status_repo.upsert_status(
                                 message.id,
                                 member.user_id,
                                 MessageStatusType.DELIVERED
                             )
-                            print(f"[MESSAGE_SERVICE] ✓✓ Marked DELIVERED for online user {member.user_id}")
                         else:
                             await self.status_repo.upsert_status(
                                 message.id,
                                 member.user_id,
                                 MessageStatusType.SENT
                             )
-            print(f"[MESSAGE_SERVICE] ✅ Created statuses for all members")
         except Exception as status_error:
             print(f"[MESSAGE_SERVICE] ❌ Failed to create message statuses: {status_error}")
             # Rollback to prevent partial status creation
@@ -560,22 +559,12 @@ class MessageService:
 
         # Broadcast new message via WebSocket
         try:
-            print(f"[MESSAGE_SERVICE] About to broadcast message: {message.id}")
-            print(f"[MESSAGE_SERVICE] Conversation ID: {conversation_id}")
-            print(f"[MESSAGE_SERVICE] WebSocket manager: {self.ws_manager}")
-            
             await self.ws_manager.broadcast_new_message(
                 conversation_id,
                 broadcast_message
             )
-            
-            print(f"[MESSAGE_SERVICE] ✅ Broadcast completed for message: {message.id}")
         except Exception as broadcast_error:
-            print(f"[MESSAGE_SERVICE] ❌ Broadcast failed: {type(broadcast_error).__name__}: {str(broadcast_error)}")
-            import traceback
-            print(traceback.format_exc())
-            # Don't fail the message send if broadcast fails
-            pass
+            logger.error(f"[send_message] Broadcast failed: {broadcast_error}", exc_info=True)
 
         return enriched_message
 

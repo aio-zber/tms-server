@@ -191,6 +191,44 @@ async def get_user_presence(user_id: str) -> Optional[str]:
     return data.get("status") if data else None
 
 
+# Global online users set (Messenger pattern).
+# With multiple uvicorn workers, each worker's in-memory user_sessions dict
+# only tracks its own connections. Redis provides a single source of truth
+# for which users are online across ALL workers.
+ONLINE_USERS_KEY = "online_users"
+
+
+async def add_online_user(user_id: str) -> bool:
+    """Add user to the global online set. Called on WebSocket connect."""
+    if not cache.redis:
+        return False
+    await cache.redis.sadd(ONLINE_USERS_KEY, user_id)
+    return True
+
+
+async def remove_online_user(user_id: str) -> bool:
+    """Remove user from the global online set. Called on WebSocket disconnect."""
+    if not cache.redis:
+        return False
+    await cache.redis.srem(ONLINE_USERS_KEY, user_id)
+    return True
+
+
+async def get_online_user_ids() -> set:
+    """Get all online user IDs across all workers."""
+    if not cache.redis:
+        return set()
+    members = await cache.redis.smembers(ONLINE_USERS_KEY)
+    return set(members)
+
+
+async def is_user_online(user_id: str) -> bool:
+    """Check if a specific user is online (any worker)."""
+    if not cache.redis:
+        return False
+    return bool(await cache.redis.sismember(ONLINE_USERS_KEY, user_id))
+
+
 # Unread count caching (Messenger/Telegram pattern)
 async def cache_unread_count(user_id: str, conversation_id: str, count: int) -> bool:
     """

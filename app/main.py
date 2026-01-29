@@ -24,6 +24,10 @@ async def lifespan(app: FastAPI):
     """
     # Startup
     await cache.connect()
+    # Clear stale online presence from previous server run.
+    # On restart, no users are connected yet — they re-register on connect.
+    if cache.redis:
+        await cache.redis.delete("online_users")
     yield
     # Shutdown
     await cache.disconnect()

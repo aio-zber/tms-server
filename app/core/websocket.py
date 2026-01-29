@@ -36,27 +36,31 @@ class ConnectionManager:
             cors_origins = settings.get_allowed_origins_list() if settings.allowed_origins else ["*"]
             logger.info(f"Prepared CORS origins for Socket.IO: {cors_origins}")
 
+            # Redis pub/sub adapter for multi-worker support (Telegram/Messenger pattern).
+            # With multiple uvicorn workers, each process has its own Socket.IO server.
+            # Without Redis, broadcasts only reach sockets on the SAME worker.
+            # AsyncRedisManager syncs rooms and events across ALL workers via Redis pub/sub.
+            client_manager = None
+            if settings.redis_url:
+                try:
+                    client_manager = socketio.AsyncRedisManager(settings.redis_url)
+                    logger.info(f"Socket.IO Redis adapter enabled for cross-worker broadcast")
+                except Exception as redis_err:
+                    logger.error(f"Failed to create Redis adapter: {redis_err}. Falling back to in-memory.")
+
             # Create async Socket.IO server
-            # Note: Railway requires WebSocket-only mode (no polling)
-            # Engine.IO configuration is done via environment variables or server params
             self.sio = socketio.AsyncServer(
                 async_mode='asgi',
                 cors_allowed_origins=cors_origins,
-                # Disable Socket.IO internal logging to prevent ERROR-level log spam
-                # Socket.IO library logs normal operations (emit events, packets) at ERROR level
-                # which causes Railway rate limits (500 logs/sec) and hides real errors
-                # Our application logger handles important events at appropriate levels
+                client_manager=client_manager,
                 logger=False,
                 engineio_logger=False,
                 ping_timeout=settings.ws_heartbeat_interval,
                 ping_interval=settings.ws_heartbeat_interval // 2,
-                # Critical: These control Engine.IO transport layer
-                # But python-socketio 5.12.0 doesn't support these in AsyncServer
-                # They must be configured in the ASGI wrapper or client-side
             )
 
             logger.info("Socket.IO server initialized successfully")
-            logger.info(f"WebSocket endpoint: /ws/socket.io/ (mount point: /ws, socketio_path: socket.io)")
+            logger.info(f"Redis adapter: {'enabled' if client_manager else 'disabled (in-memory only)'}")
         except Exception as e:
             logger.error(f"Failed to initialize Socket.IO server: {type(e).__name__}: {str(e)}")
             logger.error(f"Full error:", exc_info=True)
@@ -147,9 +151,10 @@ class ConnectionManager:
                         'timestamp': str(asyncio.get_event_loop().time())
                     }, skip_sid=sid)
 
-                    # Update presence cache
-                    from app.core.cache import set_user_presence
+                    # Update presence in Redis (global across all workers)
+                    from app.core.cache import set_user_presence, add_online_user
                     await set_user_presence(str(user.id), 'online')
+                    await add_online_user(str(user.id))
 
                     # Telegram/Messenger pattern: Auto-join ALL conversation rooms on connect.
                     # One query fetches all conversation IDs, then joins rooms in-memory.
@@ -219,21 +224,23 @@ class ConnectionManager:
             user_id = self.connections.get(sid)
 
             if user_id:
-                # Remove from user sessions
+                # Remove from this worker's session tracking
                 if user_id in self.user_sessions:
                     self.user_sessions[user_id].discard(sid)
                     if not self.user_sessions[user_id]:
                         del self.user_sessions[user_id]
 
-                        # User fully disconnected (no more sessions)
+                        # Remove from global Redis presence.
+                        # With Redis adapter, sio.emit broadcasts across all workers,
+                        # so user_offline will reach all clients.
+                        from app.core.cache import set_user_presence, remove_online_user
+                        await remove_online_user(str(user_id))
+                        await set_user_presence(str(user_id), 'offline')
+
                         await self.sio.emit('user_offline', {
                             'user_id': str(user_id),
                             'timestamp': str(asyncio.get_event_loop().time())
                         })
-
-                        # Update presence cache
-                        from app.core.cache import set_user_presence
-                        await set_user_presence(str(user_id), 'offline')
 
                 # Remove from conversation rooms
                 rooms_left = []
@@ -398,38 +405,9 @@ class ConnectionManager:
             sender_sid: Optional sender SID to skip (not used - we send to everyone including sender)
         """
         room = f"conversation:{conversation_id}"
+        logger.info(f"[broadcast] new_message to {room}, id={message_data.get('id')}")
 
-        print(f"🔔 [BROADCAST] START - Broadcasting to room: {room}")
-        print(f"🔔 [BROADCAST] Message ID: {message_data.get('id')}")
-        print(f"🔔 [BROADCAST] Message content: {message_data.get('content')}")
-        
-        logger.info(f"[broadcast_new_message] Broadcasting message to room: {room}")
-        logger.info(f"[broadcast_new_message] Message ID: {message_data.get('id')}")
-        
-        # Count actual Socket.IO room members (more reliable than internal tracking)
-        actual_member_count = 0
-        try:
-            namespace = '/'
-            if hasattr(self.sio.manager, 'rooms') and namespace in self.sio.manager.rooms:
-                namespace_rooms = self.sio.manager.rooms[namespace]
-                if room in namespace_rooms:
-                    actual_member_count = len(namespace_rooms[room])
-                    print(f"🔔 [BROADCAST] ✅ Room has {actual_member_count} connected client(s)")
-                    print(f"🔔 [BROADCAST] SIDs in room: {namespace_rooms[room]}")
-                    logger.info(f"[broadcast_new_message] ✅ Room has {actual_member_count} connected client(s)")
-                else:
-                    print(f"🔔 [BROADCAST] ⚠️  Room '{room}' not found in Socket.IO manager")
-                    print(f"🔔 [BROADCAST] Available rooms: {list(namespace_rooms.keys())[:5]}")
-                    logger.warning(f"[broadcast_new_message] ⚠️  Room '{room}' not found in Socket.IO manager")
-        except Exception as e:
-            print(f"🔔 [BROADCAST] ❌ Error checking room members: {e}")
-            logger.error(f"[broadcast_new_message] Error checking room members: {e}")
-        
-        # Broadcast the message to everyone in the room (including sender)
-        print(f"🔔 [BROADCAST] Emitting 'new_message' event to room: {room}")
         await self.sio.emit('new_message', message_data, room=room)
-        print(f"🔔 [BROADCAST] ✅ Message broadcast completed")
-        logger.info(f"[broadcast_new_message] ✅ Message broadcast completed")
 
     async def broadcast_message_edited(
         self,
