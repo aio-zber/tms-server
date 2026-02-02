@@ -100,3 +100,6 @@ Thumbs.db
 
 # Claude Code
 .claude/settings.local.json
+
+# Documentation (may contain credentials/private info)
+docs/

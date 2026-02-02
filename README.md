@@ -178,34 +178,14 @@ Server will be running at `http://localhost:8000`
 
 ## ⚙️ Environment Variables
 
-Create `.env` file with the following variables:
+Create `.env` file based on the `.env.example` template:
 
 ```bash
-# Database
-DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/tms_messaging
-DATABASE_URL_SYNC=postgresql://user:password@localhost:5432/tms_messaging
-REDIS_URL=redis://localhost:6379/0
-
-# User Management Integration (GCGC Team Management System)
-USER_MANAGEMENT_API_URL=https://gcgc-team-management-system.example.com
-USER_MANAGEMENT_API_KEY=your-user-management-api-key-here
-USER_MANAGEMENT_API_TIMEOUT=30
-
-# Security
-# IMPORTANT: JWT_SECRET must match GCGC's NEXTAUTH_SECRET
-JWT_SECRET=your-super-secret-jwt-key-minimum-32-characters-long
-ALLOWED_ORIGINS=http://localhost:3000
-
-# Alibaba Cloud OSS
-OSS_ACCESS_KEY_ID=your-oss-access-key-id
-OSS_ACCESS_KEY_SECRET=your-oss-access-key-secret
-OSS_BUCKET_NAME=your-bucket-name
-OSS_ENDPOINT=oss-cn-hangzhou.aliyuncs.com
-
-# Environment
-ENVIRONMENT=development
-DEBUG=true
+cp .env.example .env
+# Edit .env with your configuration
 ```
+
+Required variables include database URL, Redis URL, TMS API credentials, JWT secret, CORS origins, and cloud storage credentials. See `.env.example` for the full list.
 
 **Note**: Never commit the `.env` file to version control. All sensitive credentials should be managed through environment variables or secure secret management systems.
 
@@ -806,4 +786,3 @@ Proprietary - All Rights Reserved
 ---
 
 **Note:** This is the server-side repository for the TMS messaging application.
-# Railway deployment Thu Oct 16 13:22:51 PST 2025
