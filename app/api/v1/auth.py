@@ -871,12 +871,12 @@ async def sso_check(
 
     gcgc_login_url = os.getenv(
         "GCGC_LOGIN_URL",
-        "https://tms-staging.example.com/auth/signin"
+        ""
     )
 
     # Build callback URL for GCGC to redirect back to
     # Note: The proxy_headers_middleware in main.py ensures request.url.scheme
-    # correctly reflects HTTPS from Railway's X-Forwarded-Proto header
+    # correctly reflects HTTPS from the proxy's X-Forwarded-Proto header
     callback_url = f"{request.url.scheme}://{request.url.netloc}/api/v1/auth/sso/callback"
 
     # Properly encode the callback URL for GCGC's callbackUrl parameter

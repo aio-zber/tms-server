@@ -106,3 +106,9 @@ docs/
 
 # Deployment (contains SSH keys, credentials, and infrastructure configs)
 deployment/
+
+# Stray/debug files
+test_auth_flow.sh
+test_token_decode.py
+*.code-workspace
+*:Zone.Identifier

@@ -470,13 +470,13 @@ Required variables:
 - `DATABASE_URL`: Async PostgreSQL connection string (postgresql+asyncpg://...)
 - `DATABASE_URL_SYNC`: Sync PostgreSQL connection string for Alembic
 - `REDIS_URL`: Redis connection string (optional - runs without Redis if not set)
-- `USER_MANAGEMENT_API_URL`: GCGC Team Management System API base URL (e.g., https://gcgc-team-management-system-staging.up.railway.app)
+- `USER_MANAGEMENT_API_URL`: GCGC Team Management System API base URL
 - `USER_MANAGEMENT_API_KEY`: API key for authenticating with GCGC
 - `USER_MANAGEMENT_API_TIMEOUT`: Request timeout in seconds (default: 30)
 - `JWT_SECRET`: JWT secret key - **MUST match GCGC's NEXTAUTH_SECRET** (min 32 chars)
 - `ALLOWED_ORIGINS`: CORS allowed origins (comma-separated)
-- `OSS_ACCESS_KEY_ID`: Alibaba Cloud OSS Access Key ID (optional)
-- `OSS_ACCESS_KEY_SECRET`: Alibaba Cloud OSS Access Key Secret (optional)
+- `OSS_ACCESS_KEY_ID`: OSS Access Key ID (optional)
+- `OSS_ACCESS_KEY_SECRET`: OSS Access Key Secret (optional)
 - `OSS_BUCKET_NAME`: OSS bucket name (optional)
 - `OSS_ENDPOINT`: OSS endpoint (optional, e.g., oss-cn-hangzhou.aliyuncs.com)
 - `ENVIRONMENT`: `development`, `staging`, or `production`

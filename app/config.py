@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     def async_database_url(self) -> str:
         """
         Convert the base DATABASE_URL to async format for SQLAlchemy.
-        Railway provides postgresql:// but we need postgresql+asyncpg:// for async operations.
+        Some providers give postgresql:// but we need postgresql+asyncpg:// for async operations.
         """
         if self.database_url.startswith("postgresql://"):
             return self.database_url.replace("postgresql://", "postgresql+asyncpg://", 1)

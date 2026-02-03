@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Migration runner for Railway deployment.
+Migration runner for deployment.
 Runs Alembic migrations to upgrade database schema.
 """
 import subprocess

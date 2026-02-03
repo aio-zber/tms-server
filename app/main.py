@@ -54,19 +54,19 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 # Proxy Headers Middleware
-# Railway uses a reverse proxy that terminates TLS and forwards requests via HTTP.
+# Reverse proxies (e.g., nginx) terminate TLS and forward requests via HTTP.
 # This middleware reads X-Forwarded-Proto and X-Forwarded-Host headers to correctly
 # detect HTTPS and construct proper URLs.
 @app.middleware("http")
 async def proxy_headers_middleware(request: Request, call_next):
     """
-    Handle Railway's reverse proxy headers for correct HTTPS detection.
+    Handle reverse proxy headers for correct HTTPS detection.
 
-    Railway terminates TLS at the proxy and forwards requests via HTTP,
+    The proxy terminates TLS and forwards requests via HTTP,
     so request.url.scheme returns 'http' even though the client connection is HTTPS.
     This middleware reads X-Forwarded-Proto and X-Forwarded-Host to fix this.
     """
-    # Read forwarded headers from Railway's proxy
+    # Read forwarded headers from the proxy
     forwarded_proto = request.headers.get("X-Forwarded-Proto")
     forwarded_host = request.headers.get("X-Forwarded-Host")
 
@@ -277,7 +277,7 @@ async def websocket_health_check():
                 "max_connections": settings.ws_max_connections,
             },
             "client_config": {
-                "url": "wss://tms-chat-staging.example.com" if not settings.is_development else "ws://localhost:8000",
+                "url": "ws://localhost:8000" if settings.is_development else "wss://<configured-domain>",
                 "path": "/socket.io",
                 "transports": ["websocket"],
                 "upgrade": False,
