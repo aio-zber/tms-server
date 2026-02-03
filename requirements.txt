@@ -1,0 +1,49 @@
+# FastAPI Web Framework
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+slowapi==0.1.9  # Rate limiting
+
+# Database - SQLAlchemy 2.0 with async support
+sqlalchemy==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+psycopg2-binary==2.9.10  # Required for Alembic migrations (sync driver)
+
+# Data Validation
+pydantic==2.10.3
+pydantic-settings==2.6.1
+email-validator==2.1.0  # Required for EmailStr validation
+
+# Authentication & Security
+pyjwt==2.10.1
+python-multipart==0.0.20
+passlib[bcrypt]==1.7.4
+
+# WebSocket Support
+python-socketio==5.12.0
+python-engineio==4.11.0
+
+# Redis Caching
+redis==5.2.1
+hiredis==3.0.0
+
+# HTTP Client for TMS API
+httpx==0.28.1
+
+# Alibaba Cloud OSS (Object Storage Service)
+oss2==2.19.1
+
+# Image Processing & File Validation
+Pillow==10.1.0
+python-magic==0.4.27
+
+# Environment Variables
+python-dotenv==1.0.1
+
+# Utilities
+python-dateutil==2.9.0
+pytz==2024.2
+
+# Logging
+python-json-logger==3.2.1
+# Updated Thu Oct 16 13:34:52 PST 2025
