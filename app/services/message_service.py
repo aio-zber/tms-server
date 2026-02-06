@@ -211,6 +211,9 @@ class MessageService:
             "reply_to_id": message.reply_to_id,
             "is_edited": message.is_edited,
             "sequence_number": message.sequence_number,  # NEW: Include sequence number
+            "encrypted": message.encrypted,
+            "encryption_version": message.encryption_version,
+            "sender_key_id": message.sender_key_id,
             # Convert datetime objects to ISO format strings with 'Z' suffix (UTC indicator)
             "created_at": to_iso_utc(message.created_at),
             "updated_at": to_iso_utc(message.updated_at),
@@ -378,7 +381,10 @@ class MessageService:
         content: Optional[str],
         message_type: MessageType = MessageType.TEXT,
         metadata_json: Dict[str, Any] = None,
-        reply_to_id: Optional[str] = None
+        reply_to_id: Optional[str] = None,
+        encrypted: bool = False,
+        encryption_version: Optional[int] = None,
+        sender_key_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Send a new message.
@@ -390,6 +396,9 @@ class MessageService:
             message_type: Type of message
             metadata_json: Message metadata
             reply_to_id: ID of message being replied to
+            encrypted: Whether the message is E2EE encrypted
+            encryption_version: Encryption protocol version
+            sender_key_id: Sender key ID for group messages
 
         Returns:
             Created message with enriched data
@@ -434,7 +443,10 @@ class MessageService:
             type=message_type,
             metadata_json=metadata_json or {},
             reply_to_id=reply_to_id,
-            sequence_number=sequence_number  # NEW: Include sequence number
+            sequence_number=sequence_number,  # NEW: Include sequence number
+            encrypted=encrypted,
+            encryption_version=encryption_version,
+            sender_key_id=sender_key_id,
         )
 
         # CRITICAL FIX: Ensure message.id is populated before creating statuses
@@ -715,6 +727,9 @@ class MessageService:
                 "reply_to_id": message.reply_to_id,
                 "is_edited": message.is_edited,
                 "sequence_number": message.sequence_number,  # NEW: Include sequence number
+                "encrypted": message.encrypted,
+                "encryption_version": message.encryption_version,
+                "sender_key_id": message.sender_key_id,
                 "created_at": message.created_at,
                 "updated_at": message.updated_at,
                 "deleted_at": message.deleted_at,
@@ -1671,7 +1686,9 @@ class MessageService:
         conversation_id: str,
         file: "UploadFile",
         reply_to_id: Optional[str] = None,
-        duration: Optional[int] = None
+        duration: Optional[int] = None,
+        encrypted: bool = False,
+        encryption_metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Handle file upload and create message.
@@ -1733,9 +1750,9 @@ class MessageService:
         upload_result = await oss_service.upload_file(file, folder=folder)
         print(f"[MESSAGE_SERVICE] ✅ File uploaded: {upload_result['url']}")
 
-        # Generate thumbnail for images
+        # Generate thumbnail for images (skip for encrypted files — server has ciphertext)
         thumbnail_url = None
-        if message_type == MessageType.IMAGE:
+        if message_type == MessageType.IMAGE and not encrypted:
             print(f"[MESSAGE_SERVICE] 🖼️ Generating image thumbnail...")
             try:
                 # Reset file pointer and read content for thumbnail
@@ -1777,6 +1794,11 @@ class MessageService:
             metadata_json["duration"] = duration
             print(f"[MESSAGE_SERVICE] 🎤 Voice duration: {duration}s")
 
+        # Merge encryption metadata if present
+        if encrypted and encryption_metadata:
+            metadata_json["encryption"] = encryption_metadata
+            print(f"[MESSAGE_SERVICE] 🔒 Encrypted file upload with metadata")
+
         print(f"[MESSAGE_SERVICE] 📋 Metadata: {metadata_json}")
 
         # Create message using existing send_message method
@@ -1789,7 +1811,9 @@ class MessageService:
             content=content,
             message_type=message_type,
             metadata_json=metadata_json,
-            reply_to_id=reply_to_id
+            reply_to_id=reply_to_id,
+            encrypted=encrypted,
+            encryption_version=1 if encrypted else None,
         )
 
         print(f"[MESSAGE_SERVICE] ✅ File message created: {message.get('id')}")

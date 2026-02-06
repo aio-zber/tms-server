@@ -78,7 +78,10 @@ async def send_message(
             content=message_data.content,
             message_type=message_data.type,
             metadata_json=message_data.metadata_json,
-            reply_to_id=message_data.reply_to_id
+            reply_to_id=message_data.reply_to_id,
+            encrypted=message_data.encrypted,
+            encryption_version=message_data.encryption_version,
+            sender_key_id=message_data.sender_key_id,
         )
 
         return message
@@ -883,6 +886,8 @@ async def upload_file_message(
     file: UploadFile = File(...),
     reply_to_id: Optional[str] = Form(None),
     duration: Optional[int] = Form(None),  # For voice messages (seconds)
+    encrypted: Optional[str] = Form(None),  # "true" if file is E2EE encrypted
+    encryption_metadata: Optional[str] = Form(None),  # JSON string with encryption metadata
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -918,13 +923,27 @@ async def upload_file_message(
                 detail="User not found in local database"
             )
 
+        # Parse encryption metadata if provided
+        parsed_encryption_metadata = None
+        if encryption_metadata:
+            import json
+            try:
+                parsed_encryption_metadata = json.loads(encryption_metadata)
+            except json.JSONDecodeError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid encryption_metadata JSON"
+                )
+
         # Delegate to message service for file upload handling
         message = await service.handle_file_upload(
             sender_id=user.id,
             conversation_id=conversation_id,
             file=file,
             reply_to_id=reply_to_id,
-            duration=duration
+            duration=duration,
+            encrypted=(encrypted == "true"),
+            encryption_metadata=parsed_encryption_metadata,
         )
 
         return message
