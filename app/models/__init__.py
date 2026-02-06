@@ -17,6 +17,7 @@ from app.models.poll import Poll, PollOption, PollVote
 from app.models.notification_preferences import NotificationPreferences
 from app.models.muted_conversation import MutedConversation
 from app.models.user_deleted_message import UserDeletedMessage
+from app.models.encryption import UserKeyBundle, OneTimePreKey, GroupSenderKey
 
 # Export all models and enums
 __all__ = [
@@ -53,4 +54,8 @@ __all__ = [
     "MutedConversation",
     # Per-user message deletion
     "UserDeletedMessage",
+    # E2EE encryption
+    "UserKeyBundle",
+    "OneTimePreKey",
+    "GroupSenderKey",
 ]
