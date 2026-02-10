@@ -175,7 +175,8 @@ class ConversationService:
                 "content": last_message.content,
                 "type": last_message.type,
                 "sender_id": last_message.sender_id,
-                "timestamp": last_message.created_at  # Frontend expects "timestamp"
+                "timestamp": last_message.created_at,  # Frontend expects "timestamp"
+                "encrypted": getattr(last_message, 'encrypted', False) or False,
             }
 
         return conversation_dict
