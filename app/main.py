@@ -22,12 +22,27 @@ async def lifespan(app: FastAPI):
     Application lifespan manager.
     Handles startup and shutdown events.
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
     # Startup
     await cache.connect()
     # Clear stale online presence from previous server run.
     # On restart, no users are connected yet — they re-register on connect.
     if cache.redis:
         await cache.redis.delete("online_users")
+
+    # Log critical auth configuration for deployment verification
+    logger.info(f"Environment: {settings.environment}")
+    logger.info(f"GCGC API URL: {settings.user_management_api_url}")
+    logger.info(f"NEXTAUTH_SECRET configured: {'yes' if settings.nextauth_secret else 'NO - SSO WILL FAIL'}")
+    logger.info(f"JWT_SECRET matches NEXTAUTH_SECRET: {settings.jwt_secret == settings.nextauth_secret}")
+    if settings.jwt_secret != settings.nextauth_secret:
+        logger.warning(
+            "JWT_SECRET and NEXTAUTH_SECRET differ. "
+            "Ensure NEXTAUTH_SECRET matches your GCGC's NEXTAUTH_SECRET for SSO to work."
+        )
+
     yield
     # Shutdown
     await cache.disconnect()

@@ -21,79 +21,25 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     """
     1. Fix message timestamps to use server default (current timestamp)
-    2. Add critical performance indexes
+    2. Add critical performance indexes (idempotent - safe to re-run)
     """
-    
+
     # Fix timestamps: Ensure created_at has proper server default
     op.alter_column('messages', 'created_at',
                     existing_type=sa.DateTime(),
                     server_default=sa.text('now()'),
                     nullable=False)
-    
-    # Add composite index for optimized message pagination
-    # This is CRITICAL for fast queries with ORDER BY created_at, id
-    op.create_index(
-        'idx_messages_conversation_created_id',
-        'messages',
-        ['conversation_id', 'created_at', 'id'],
-        unique=False
-    )
-    
-    # Add index for sender queries
-    op.create_index(
-        'idx_messages_sender',
-        'messages',
-        ['sender_id'],
-        unique=False
-    )
-    
-    # Add index for reply lookups
-    op.create_index(
-        'idx_messages_reply_to',
-        'messages',
-        ['reply_to_id'],
-        unique=False
-    )
-    
-    # Add index for message reactions
-    op.create_index(
-        'idx_message_reactions_message',
-        'message_reactions',
-        ['message_id'],
-        unique=False
-    )
-    
-    # Add index for user's reactions
-    op.create_index(
-        'idx_message_reactions_user',
-        'message_reactions',
-        ['user_id'],
-        unique=False
-    )
-    
-    # Add index for message status queries
-    op.create_index(
-        'idx_message_status_message_user',
-        'message_status',
-        ['message_id', 'user_id'],
-        unique=False
-    )
-    
-    # Add index for conversation members
-    op.create_index(
-        'idx_conversation_members_user',
-        'conversation_members',
-        ['user_id'],
-        unique=False
-    )
-    
-    # Add index for TMS user ID lookups (critical for auth)
-    op.create_index(
-        'idx_users_tms_user_id',
-        'users',
-        ['tms_user_id'],
-        unique=True
-    )
+
+    # Use raw SQL with IF NOT EXISTS for indexes that may already exist
+    # from the initial schema migration
+    op.execute('CREATE INDEX IF NOT EXISTS idx_messages_conversation_created_id ON messages (conversation_id, created_at, id)')
+    op.execute('CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages (sender_id)')
+    op.execute('CREATE INDEX IF NOT EXISTS idx_messages_reply_to ON messages (reply_to_id)')
+    op.execute('CREATE INDEX IF NOT EXISTS idx_message_reactions_message ON message_reactions (message_id)')
+    op.execute('CREATE INDEX IF NOT EXISTS idx_message_reactions_user ON message_reactions (user_id)')
+    op.execute('CREATE INDEX IF NOT EXISTS idx_message_status_message_user ON message_status (message_id, user_id)')
+    op.execute('CREATE INDEX IF NOT EXISTS idx_conversation_members_user ON conversation_members (user_id)')
+    op.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_tms_user_id ON users (tms_user_id)')
 
 
 def downgrade() -> None:
