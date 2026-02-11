@@ -1,7 +1,7 @@
 """add_user_deleted_messages_table
 
 Revision ID: 1a009d41900d
-Revises: 7ab8a008d2fe
+Revises: e7828e95503f
 Create Date: 2026-01-20 15:15:13.915108
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = '1a009d41900d'
-down_revision: Union[str, None] = '7ab8a008d2fe'
+down_revision: Union[str, None] = 'e7828e95503f'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
