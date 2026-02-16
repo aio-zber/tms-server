@@ -1688,7 +1688,7 @@ class MessageService:
         reply_to_id: Optional[str] = None,
         duration: Optional[int] = None,
         encrypted: bool = False,
-        encryption_metadata: Optional[Dict[str, Any]] = None,
+        encryption_metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Handle file upload and create message.
@@ -1696,12 +1696,18 @@ class MessageService:
         Uploads file to OSS, generates thumbnail if applicable, and creates
         a message with the appropriate type (IMAGE, FILE, or VOICE).
 
+        For E2EE encrypted files: skips MIME validation (ciphertext is always
+        application/octet-stream) and uses originalMimeType from encryption
+        metadata to determine message type (Messenger/WhatsApp pattern).
+
         Args:
             sender_id: Sender user ID
             conversation_id: Conversation ID
             file: Uploaded file (FastAPI UploadFile)
             reply_to_id: Optional message ID to reply to
             duration: Optional duration for voice messages (seconds)
+            encrypted: Whether the file is E2EE encrypted
+            encryption_metadata: Encryption metadata with originalMimeType, etc.
 
         Returns:
             Created message with enriched data
@@ -1716,19 +1722,35 @@ class MessageService:
         print(f"[MESSAGE_SERVICE] 📁 Starting file upload: {file.filename}")
         print(f"[MESSAGE_SERVICE] 📁 Content-Type: {file.content_type}")
         print(f"[MESSAGE_SERVICE] 📁 Conversation: {conversation_id}")
+        print(f"[MESSAGE_SERVICE] 📁 Encrypted: {encrypted}")
 
         # Initialize OSS service
         oss_service = OSSService()
 
-        # Validate file type and size
         allowed_types = settings.get_allowed_file_types_list()
         max_size = settings.max_upload_size
 
-        print(f"[MESSAGE_SERVICE] 🔍 Validating file (max_size: {max_size}, allowed_types: {len(allowed_types)})")
-        oss_service.validate_file(file, allowed_types, max_size)
-
-        # Determine message type based on MIME type
-        content_type = file.content_type or "application/octet-stream"
+        if encrypted and encryption_metadata:
+            # Encrypted files: skip MIME validation (ciphertext is always application/octet-stream)
+            # Only validate file size (security boundary)
+            print(f"[MESSAGE_SERVICE] 🔐 Encrypted upload — skipping MIME validation, checking size only")
+            file.file.seek(0, 2)
+            file_size = file.file.tell()
+            file.file.seek(0)
+            if file_size == 0:
+                raise HTTPException(status_code=400, detail="File is empty")
+            if file_size > max_size:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"File too large ({file_size} bytes, max {max_size})"
+                )
+            # Use original MIME type from encryption metadata for message type detection
+            content_type = encryption_metadata.get("originalMimeType", "application/octet-stream")
+            print(f"[MESSAGE_SERVICE] 🔐 Using originalMimeType: {content_type}")
+        else:
+            print(f"[MESSAGE_SERVICE] 🔍 Validating file (max_size: {max_size}, allowed_types: {len(allowed_types)})")
+            oss_service.validate_file(file, allowed_types, max_size)
+            content_type = file.content_type or "application/octet-stream"
 
         if content_type.startswith('image/'):
             message_type = MessageType.IMAGE
@@ -1750,7 +1772,7 @@ class MessageService:
         upload_result = await oss_service.upload_file(file, folder=folder)
         print(f"[MESSAGE_SERVICE] ✅ File uploaded: {upload_result['url']}")
 
-        # Generate thumbnail for images (skip for encrypted files — server has ciphertext)
+        # Generate thumbnail for images (skip for encrypted files — server can't read ciphertext)
         thumbnail_url = None
         if message_type == MessageType.IMAGE and not encrypted:
             print(f"[MESSAGE_SERVICE] 🖼️ Generating image thumbnail...")
@@ -1794,10 +1816,9 @@ class MessageService:
             metadata_json["duration"] = duration
             print(f"[MESSAGE_SERVICE] 🎤 Voice duration: {duration}s")
 
-        # Merge encryption metadata if present
+        # Add encryption metadata if present (E2EE file uploads)
         if encrypted and encryption_metadata:
             metadata_json["encryption"] = encryption_metadata
-            print(f"[MESSAGE_SERVICE] 🔒 Encrypted file upload with metadata")
 
         print(f"[MESSAGE_SERVICE] 📋 Metadata: {metadata_json}")
 

@@ -887,7 +887,7 @@ async def upload_file_message(
     reply_to_id: Optional[str] = Form(None),
     duration: Optional[int] = Form(None),  # For voice messages (seconds)
     encrypted: Optional[str] = Form(None),  # "true" if file is E2EE encrypted
-    encryption_metadata: Optional[str] = Form(None),  # JSON string with encryption metadata
+    encryption_metadata: Optional[str] = Form(None),  # JSON: { originalMimeType, ... }
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -923,12 +923,13 @@ async def upload_file_message(
                 detail="User not found in local database"
             )
 
-        # Parse encryption metadata if provided
-        parsed_encryption_metadata = None
-        if encryption_metadata:
+        # Parse encryption metadata if present
+        is_encrypted = encrypted == "true"
+        enc_metadata = None
+        if is_encrypted and encryption_metadata:
             import json
             try:
-                parsed_encryption_metadata = json.loads(encryption_metadata)
+                enc_metadata = json.loads(encryption_metadata)
             except json.JSONDecodeError:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -942,8 +943,8 @@ async def upload_file_message(
             file=file,
             reply_to_id=reply_to_id,
             duration=duration,
-            encrypted=(encrypted == "true"),
-            encryption_metadata=parsed_encryption_metadata,
+            encrypted=is_encrypted,
+            encryption_metadata=enc_metadata
         )
 
         return message

@@ -72,13 +72,23 @@ class ConversationService:
                 creator = result.scalar_one_or_none()
 
                 if creator:
-                    creator_data = await tms_client.get_user(
-                        creator.tms_user_id,
-                        use_cache=True
-                    )
-                    conversation_dict["creator"] = creator_data
-            except (TMSAPIException, Exception):
-                # Fallback to basic creator info
+                    try:
+                        creator_data = await tms_client.get_user(
+                            creator.tms_user_id,
+                            use_cache=True
+                        )
+                        conversation_dict["creator"] = creator_data
+                    except (TMSAPIException, Exception):
+                        # Fallback to local DB data
+                        conversation_dict["creator"] = {
+                            "id": str(creator.id),
+                            "tms_user_id": creator.tms_user_id,
+                            "email": creator.email or "",
+                            "first_name": creator.first_name or "",
+                            "last_name": creator.last_name or "",
+                            "image": creator.image or "",
+                        }
+            except Exception:
                 conversation_dict["creator"] = {
                     "id": str(conversation.created_by)
                 }
@@ -95,31 +105,34 @@ class ConversationService:
                 "mute_until": member.mute_until
             }
 
-            # Fetch user data from TMS
+            # Fetch user data from TMS, with local DB fallback
             if member.user:
+                # Build local DB fallback data (always available, no API call needed)
+                local_user_data = {
+                    "id": str(member.user_id),
+                    "tms_user_id": member.user.tms_user_id,
+                    "email": member.user.email or "",
+                    "first_name": member.user.first_name or "",
+                    "last_name": member.user.last_name or "",
+                    "middle_name": member.user.middle_name or "",
+                    "username": member.user.username or "",
+                    "image": member.user.image or "",
+                    "role": member.user.role or "",
+                    "position_title": member.user.position_title or "",
+                    "division": member.user.division or "",
+                    "department": member.user.department or "",
+                }
+
                 try:
-                    print(f"[CONVERSATION_SERVICE] Fetching TMS user data for: {member.user.tms_user_id}")
                     # Use API Key authentication for server-to-server calls (PREFERRED METHOD)
                     user_data = await tms_client.get_user_by_id_with_api_key(
                         member.user.tms_user_id,
                         use_cache=True
                     )
-                    print(f"[CONVERSATION_SERVICE] ✅ Got TMS user data: {user_data.get('email', 'N/A')}")
                     member_dict["user"] = user_data
-                except TMSAPIException as e:
-                    # Fallback to basic user info
-                    print(f"[CONVERSATION_SERVICE] ❌ TMS API failed: {str(e)}")
-                    member_dict["user"] = {
-                        "id": str(member.user_id),
-                        "tms_user_id": member.user.tms_user_id
-                    }
-                except Exception as e:
-                    # Catch all other exceptions
-                    print(f"[CONVERSATION_SERVICE] ❌ Unexpected error: {type(e).__name__}: {str(e)}")
-                    member_dict["user"] = {
-                        "id": str(member.user_id),
-                        "tms_user_id": member.user.tms_user_id
-                    }
+                except (TMSAPIException, Exception):
+                    # Fallback to local DB data (has name, email, image from last sync)
+                    member_dict["user"] = local_user_data
 
             enriched_members.append(member_dict)
 
@@ -454,6 +467,7 @@ class ConversationService:
                     'status': 'sent',
                     'metadata': system_msg.metadata_json,
                     'isEdited': system_msg.is_edited,
+                    'sequenceNumber': system_msg.sequence_number,
                     'createdAt': system_msg.created_at.isoformat()
                 }
 
@@ -598,6 +612,7 @@ class ConversationService:
                     'status': 'sent',
                     'metadata': system_msg.metadata_json,
                     'isEdited': system_msg.is_edited,
+                    'sequenceNumber': system_msg.sequence_number,
                     'createdAt': system_msg.created_at.isoformat()
                 }
 
@@ -739,6 +754,7 @@ class ConversationService:
                     'status': 'sent',
                     'metadata': system_msg.metadata_json,
                     'isEdited': system_msg.is_edited,
+                    'sequenceNumber': system_msg.sequence_number,
                     'createdAt': system_msg.created_at.isoformat()
                 }
 
@@ -853,6 +869,7 @@ class ConversationService:
                     'status': 'sent',
                     'metadata': system_msg.metadata_json,
                     'isEdited': system_msg.is_edited,
+                    'sequenceNumber': system_msg.sequence_number,
                     'createdAt': system_msg.created_at.isoformat()
                 }
 
