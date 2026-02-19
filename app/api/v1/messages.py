@@ -889,9 +889,9 @@ async def get_x3dh_header(
     """
     from app.models.message import Message
     from sqlalchemy import select, asc
+    from app.repositories.conversation_repo import ConversationMemberRepository
 
-    # Verify user is member of conversation
-    service = MessageService(db)
+    # Verify user exists
     from app.models.user import User
     result = await db.execute(
         select(User).where(User.tms_user_id == current_user["tms_user_id"])
@@ -899,6 +899,11 @@ async def get_x3dh_header(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    # Verify user is a member of the conversation (security: no leaking headers to non-members)
+    member_repo = ConversationMemberRepository(db)
+    if not await member_repo.is_member(conversation_id, user.id):
+        raise HTTPException(status_code=403, detail="Not a member of this conversation")
 
     # Find first encrypted message with x3dhHeader in metadata_json
     stmt = (

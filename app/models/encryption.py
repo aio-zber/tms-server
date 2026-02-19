@@ -256,3 +256,73 @@ class KeyBackup(Base):
 
     def __repr__(self) -> str:
         return f"<KeyBackup(user_id={self.user_id})>"
+
+
+class ConversationKeyBackup(Base):
+    """
+    Per-conversation key backup for multi-device support.
+
+    Stores the conversation key encrypted with the user's own identity key,
+    so any device that has the identity key can recover conversation sessions.
+    The server only stores opaque encrypted blobs — it never sees plaintext keys.
+    """
+
+    __tablename__ = "conversation_key_backups"
+
+    id: Mapped[str] = mapped_column(
+        String(255),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+        doc="Unique ID for this record",
+    )
+
+    user_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        doc="User who owns this key backup",
+    )
+
+    conversation_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        doc="Conversation this key is for",
+    )
+
+    encrypted_key: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        doc="Base64 conversation key encrypted with user's identity key",
+    )
+
+    nonce: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        doc="Base64 nonce used for encryption",
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        doc="When the backup was created",
+    )
+
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        doc="When the backup was last updated",
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "conversation_id",
+            name="uq_user_conversation_key_backup",
+        ),
+    )
+
+    def __repr__(self) -> str:
+        return f"<ConversationKeyBackup(user_id={self.user_id}, conversation_id={self.conversation_id})>"

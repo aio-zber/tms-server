@@ -11,7 +11,7 @@ from typing import Optional, List, Dict, Any
 from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.encryption import UserKeyBundle, OneTimePreKey, GroupSenderKey, KeyBackup
+from app.models.encryption import UserKeyBundle, OneTimePreKey, GroupSenderKey, KeyBackup, ConversationKeyBackup
 from app.utils.datetime_utils import utc_now
 from app.core.cache import cache
 
@@ -404,3 +404,62 @@ class EncryptionService:
 
         await cache.set(cache_key, status, ttl=300)
         return status
+
+    # ==================== Conversation Key Backup ====================
+
+    async def upsert_conversation_key_backup(
+        self,
+        user_id: str,
+        conversation_id: str,
+        encrypted_key: str,
+        nonce: str,
+    ) -> None:
+        """
+        Store or update the encrypted conversation key for multi-device recovery.
+        Only the owning user can store/retrieve their conversation key backup.
+        """
+        result = await self.db.execute(
+            select(ConversationKeyBackup).where(
+                ConversationKeyBackup.user_id == user_id,
+                ConversationKeyBackup.conversation_id == conversation_id,
+            )
+        )
+        existing = result.scalar_one_or_none()
+
+        now = utc_now()
+        if existing:
+            existing.encrypted_key = encrypted_key
+            existing.nonce = nonce
+            existing.updated_at = now
+        else:
+            record = ConversationKeyBackup(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                encrypted_key=encrypted_key,
+                nonce=nonce,
+            )
+            self.db.add(record)
+
+        await self.db.commit()
+
+    async def get_conversation_key_backup(
+        self,
+        user_id: str,
+        conversation_id: str,
+    ) -> Optional[Dict[str, str]]:
+        """Fetch the encrypted conversation key for multi-device recovery."""
+        result = await self.db.execute(
+            select(ConversationKeyBackup).where(
+                ConversationKeyBackup.user_id == user_id,
+                ConversationKeyBackup.conversation_id == conversation_id,
+            )
+        )
+        record = result.scalar_one_or_none()
+        if not record:
+            return None
+
+        return {
+            "conversation_id": record.conversation_id,
+            "encrypted_key": record.encrypted_key,
+            "nonce": record.nonce,
+        }

@@ -22,6 +22,8 @@ from app.schemas.encryption import (
     KeyBackupUpload,
     KeyBackupResponse,
     KeyBackupStatusResponse,
+    ConversationKeyBackupUpload,
+    ConversationKeyBackupResponse,
 )
 from app.services.encryption_service import EncryptionService
 
@@ -328,3 +330,78 @@ async def get_key_backup_status(
     user_id = await _get_local_user_id(db, current_user["tms_user_id"])
     service = EncryptionService(db)
     return await service.has_key_backup(user_id)
+
+
+# ==================== Conversation Key Backup Endpoints ====================
+
+
+@router.post(
+    "/keys/conversation",
+    status_code=status.HTTP_200_OK,
+    summary="Upload conversation key backup",
+    description="Store the conversation key encrypted with the user's identity key for multi-device recovery.",
+)
+@limiter.limit("60/minute")
+async def upload_conversation_key(
+    request: Request,
+    data: ConversationKeyBackupUpload,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload an encrypted conversation key for multi-device recovery."""
+    try:
+        user_id = await _get_local_user_id(db, current_user["tms_user_id"])
+        service = EncryptionService(db)
+
+        await service.upsert_conversation_key_backup(
+            user_id=user_id,
+            conversation_id=data.conversation_id,
+            encrypted_key=data.encrypted_key,
+            nonce=data.nonce,
+        )
+
+        return {"success": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[ENCRYPTION] upload_conversation_key failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to upload conversation key: {type(e).__name__}",
+        )
+
+
+@router.get(
+    "/keys/conversation/{conversation_id}",
+    response_model=ConversationKeyBackupResponse,
+    summary="Fetch conversation key backup",
+    description="Retrieve the encrypted conversation key for multi-device session recovery.",
+)
+@limiter.limit("60/minute")
+async def get_conversation_key(
+    request: Request,
+    conversation_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Fetch the encrypted conversation key for multi-device recovery."""
+    try:
+        user_id = await _get_local_user_id(db, current_user["tms_user_id"])
+        service = EncryptionService(db)
+
+        record = await service.get_conversation_key_backup(user_id, conversation_id)
+        if not record:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No conversation key backup found",
+            )
+
+        return record
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[ENCRYPTION] get_conversation_key failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch conversation key: {type(e).__name__}",
+        )

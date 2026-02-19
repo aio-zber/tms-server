@@ -164,3 +164,22 @@ class KeyBackupStatusResponse(BaseModel):
     has_backup: bool
     created_at: Optional[str] = None
     identity_key_hash: Optional[str] = None
+
+
+# ==================== Conversation Key Backup Schemas ====================
+
+
+class ConversationKeyBackupUpload(BaseModel):
+    """Request to upload an encrypted conversation key for multi-device recovery."""
+
+    conversation_id: str = Field(..., description="Conversation ID")
+    encrypted_key: str = Field(..., description="Base64 conversation key encrypted with identity key")
+    nonce: str = Field(..., description="Base64 nonce")
+
+
+class ConversationKeyBackupResponse(BaseModel):
+    """Response containing an encrypted conversation key."""
+
+    conversation_id: str
+    encrypted_key: str
+    nonce: str
