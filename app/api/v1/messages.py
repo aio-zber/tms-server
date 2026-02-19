@@ -872,6 +872,62 @@ async def clear_conversation(
     }
 
 
+@router.get(
+    "/conversations/{conversation_id}/x3dh-header",
+    summary="Get X3DH header from first encrypted message",
+    description="Returns the X3DH header from the first encrypted message in a conversation. "
+                "Used for automatic session re-establishment when local keys are lost."
+)
+async def get_x3dh_header(
+    conversation_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Find the first encrypted message in the conversation that has an X3DH header
+    in its metadata, so the client can re-derive the session key.
+    """
+    from app.models.message import Message
+    from sqlalchemy import select, asc
+
+    # Verify user is member of conversation
+    service = MessageService(db)
+    from app.models.user import User
+    result = await db.execute(
+        select(User).where(User.tms_user_id == current_user["tms_user_id"])
+    )
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Find first encrypted message with x3dhHeader in metadata_json
+    stmt = (
+        select(Message)
+        .where(
+            Message.conversation_id == conversation_id,
+            Message.encrypted == True,
+            Message.deleted_at.is_(None),
+        )
+        .order_by(asc(Message.created_at))
+        .limit(20)  # Check first 20 encrypted messages
+    )
+    result = await db.execute(stmt)
+    messages = result.scalars().all()
+
+    for msg in messages:
+        meta = msg.metadata_json or {}
+        encryption = meta.get("encryption", {})
+        if encryption.get("x3dhHeader"):
+            return {
+                "found": True,
+                "x3dh_header": encryption["x3dhHeader"],
+                "sender_id": msg.sender_id,
+                "message_id": msg.id,
+            }
+
+    return {"found": False, "x3dh_header": None, "sender_id": None, "message_id": None}
+
+
 @router.post(
     "/upload",
     response_model=MessageResponse,
