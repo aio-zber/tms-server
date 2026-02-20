@@ -224,6 +224,7 @@ async def distribute_sender_key(
             sender_key_id=data.distribution.sender_key_id,
             public_key=data.distribution.public_key,
             recipients=data.recipients,
+            chain_key=data.distribution.chain_key,
         )
 
         return {"success": True, "message": "Sender key distributed"}

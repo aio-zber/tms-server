@@ -262,6 +262,7 @@ class EncryptionService:
         sender_key_id: str,
         public_key: str,
         recipients: List[str],
+        chain_key: Optional[str] = None,
     ) -> None:
         """
         Store sender key and relay distribution to recipients via WebSocket.
@@ -270,8 +271,9 @@ class EncryptionService:
             sender_id: User distributing their key
             conversation_id: Group conversation
             sender_key_id: Client-assigned key ID
-            public_key: Base64-encoded key data
+            public_key: Base64-encoded signing public key
             recipients: User IDs to distribute to
+            chain_key: Base64-encoded initial chain key (required for decryption)
         """
         # Store the sender key
         await self.upsert_sender_key(
@@ -279,14 +281,17 @@ class EncryptionService:
         )
         await self.db.commit()
 
-        # Relay to recipients via WebSocket
+        # Relay to recipients via WebSocket.
+        # Field names match what the client's receiveSenderKeyDistribution() expects:
+        # key_id, chain_key, public_signing_key (not sender_key_id / public_key)
         from app.core.websocket import connection_manager
 
         distribution_data = {
             "conversation_id": conversation_id,
             "sender_id": sender_id,
-            "sender_key_id": sender_key_id,
-            "public_key": public_key,
+            "key_id": sender_key_id,
+            "public_signing_key": public_key,
+            "chain_key": chain_key,
         }
 
         for recipient_id in recipients:
