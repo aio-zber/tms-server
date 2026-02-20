@@ -19,6 +19,7 @@ from app.schemas.encryption import (
     PreKeyUpload,
     PreKeyCountResponse,
     SenderKeyDistribute,
+    SenderKeysResponse,
     KeyBackupUpload,
     KeyBackupResponse,
     KeyBackupStatusResponse,
@@ -237,6 +238,42 @@ async def distribute_sender_key(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to distribute sender key: {type(e).__name__}",
+        )
+
+
+@router.get(
+    "/sender-keys/{conversation_id}",
+    response_model=SenderKeysResponse,
+    summary="Fetch group sender keys",
+    description="Fetch all stored sender keys for a group conversation. Only accessible to conversation members.",
+)
+@limiter.limit("30/minute")
+async def get_sender_keys(
+    request: Request,
+    conversation_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Fetch all sender keys for a group (called when opening a group chat)."""
+    try:
+        user_id = await _get_local_user_id(db, current_user["tms_user_id"])
+        service = EncryptionService(db)
+
+        keys = await service.get_sender_keys(
+            conversation_id=conversation_id,
+            requesting_user_id=user_id,
+        )
+
+        return {"sender_keys": keys}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"[ENCRYPTION] get_sender_keys failed: {e}", exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch sender keys: {type(e).__name__}",
         )
 
 

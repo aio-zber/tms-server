@@ -124,6 +124,21 @@ class SenderKeyDistribute(BaseModel):
         }
 
 
+class SenderKeyEntry(BaseModel):
+    """A single sender key entry for a group member."""
+
+    sender_id: str
+    key_id: str
+    public_signing_key: str
+    chain_key: Optional[str] = None
+
+
+class SenderKeysResponse(BaseModel):
+    """Response containing all sender keys for a group conversation."""
+
+    sender_keys: List[SenderKeyEntry]
+
+
 class PreKeyCountResponse(BaseModel):
     """Response with the user's remaining pre-key count."""
 

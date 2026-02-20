@@ -223,6 +223,7 @@ class EncryptionService:
         sender_id: str,
         sender_key_id: str,
         public_key: str,
+        chain_key: Optional[str] = None,
     ) -> None:
         """
         Store or update a group sender key.
@@ -231,7 +232,8 @@ class EncryptionService:
             conversation_id: Group conversation ID
             sender_id: User who owns this sender key
             sender_key_id: Client-assigned sender key ID
-            public_key: Base64-encoded sender key public data
+            public_key: Base64-encoded sender key public data (signing public key)
+            chain_key: Base64-encoded initial chain key (required for decryption)
         """
         result = await self.db.execute(
             select(GroupSenderKey).where(
@@ -244,6 +246,7 @@ class EncryptionService:
         if existing:
             existing.sender_key_id = sender_key_id
             existing.public_key = public_key
+            existing.chain_key = chain_key
             existing.created_at = utc_now()
         else:
             self.db.add(GroupSenderKey(
@@ -251,9 +254,57 @@ class EncryptionService:
                 sender_id=sender_id,
                 sender_key_id=sender_key_id,
                 public_key=public_key,
+                chain_key=chain_key,
             ))
 
         await self.db.flush()
+
+    async def get_sender_keys(
+        self,
+        conversation_id: str,
+        requesting_user_id: str,
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch all sender keys for a group conversation.
+
+        Only members of the conversation can fetch sender keys.
+        Returns all sender keys except the requesting user's own key
+        (they already have it locally).
+
+        Args:
+            conversation_id: Group conversation ID
+            requesting_user_id: User requesting the keys
+
+        Returns:
+            List of sender key dicts with sender_id, key_id, public_signing_key, chain_key
+        """
+        from app.models.conversation import ConversationMember
+        # Verify membership
+        membership = await self.db.execute(
+            select(ConversationMember).where(
+                ConversationMember.conversation_id == conversation_id,
+                ConversationMember.user_id == requesting_user_id,
+            )
+        )
+        if not membership.scalar_one_or_none():
+            return []
+
+        result = await self.db.execute(
+            select(GroupSenderKey).where(
+                GroupSenderKey.conversation_id == conversation_id,
+            )
+        )
+        keys = result.scalars().all()
+
+        return [
+            {
+                "sender_id": k.sender_id,
+                "key_id": k.sender_key_id,
+                "public_signing_key": k.public_key,
+                "chain_key": k.chain_key,
+            }
+            for k in keys
+        ]
 
     async def distribute_sender_key(
         self,
@@ -275,9 +326,9 @@ class EncryptionService:
             recipients: User IDs to distribute to
             chain_key: Base64-encoded initial chain key (required for decryption)
         """
-        # Store the sender key
+        # Store the sender key (including chain_key for later fetching by members)
         await self.upsert_sender_key(
-            conversation_id, sender_id, sender_key_id, public_key
+            conversation_id, sender_id, sender_key_id, public_key, chain_key
         )
         await self.db.commit()
 

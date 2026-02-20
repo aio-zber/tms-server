@@ -173,7 +173,13 @@ class GroupSenderKey(Base):
     public_key: Mapped[str] = mapped_column(
         Text,
         nullable=False,
-        doc="Base64-encoded sender key public data",
+        doc="Base64-encoded sender key public data (signing public key)",
+    )
+
+    chain_key: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        doc="Base64-encoded initial chain key for decryption",
     )
 
     created_at: Mapped[datetime] = mapped_column(
