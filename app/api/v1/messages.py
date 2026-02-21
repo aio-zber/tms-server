@@ -2,14 +2,22 @@
 Message API routes.
 Provides endpoints for sending, retrieving, editing, and managing messages.
 """
+import hashlib
+import json
+import logging
+from html.parser import HTMLParser
 from typing import Optional
+from urllib.parse import urlparse
 # UUID import removed - using str for ID types
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, UploadFile, File, Form
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
+from app.core.cache import cache
 from app.core.database import get_db
 from app.dependencies import get_current_user, get_pagination_params
 from app.schemas.message import (
@@ -27,8 +35,172 @@ from app.schemas.message import (
 )
 from app.services.message_service import MessageService
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
+
+
+# ---------------------------------------------------------------------------
+# Link Preview — schema, HTML parser helper, scrape helper
+# ---------------------------------------------------------------------------
+
+class LinkPreviewResponse(BaseModel):
+    url: str
+    title: Optional[str] = None
+    description: Optional[str] = None
+    image: Optional[str] = None
+    favicon: Optional[str] = None
+    domain: str
+
+
+class _OGParser(HTMLParser):
+    """Minimal HTML parser that extracts Open Graph meta tags, <title>, and <meta name="description">."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.og_title: Optional[str] = None
+        self.og_description: Optional[str] = None
+        self.og_image: Optional[str] = None
+        self.html_title: Optional[str] = None
+        self.meta_description: Optional[str] = None
+        self.first_img: Optional[str] = None
+        # Internal state for <title> tag content capture
+        self._in_title: bool = False
+        self._title_parts: list = []
+
+    def handle_starttag(self, tag: str, attrs: list) -> None:
+        attr_dict = dict(attrs)
+        tag_lower = tag.lower()
+
+        if tag_lower == "title":
+            self._in_title = True
+            self._title_parts = []
+            return
+
+        if tag_lower == "meta":
+            prop = (attr_dict.get("property") or "").lower()
+            name = (attr_dict.get("name") or "").lower()
+            content = attr_dict.get("content") or ""
+
+            if prop == "og:title" and not self.og_title:
+                self.og_title = content.strip()
+            elif prop == "og:description" and not self.og_description:
+                self.og_description = content.strip()
+            elif prop == "og:image" and not self.og_image:
+                self.og_image = content.strip()
+            elif name == "description" and not self.meta_description:
+                self.meta_description = content.strip()
+            return
+
+        if tag_lower == "img" and not self.first_img:
+            src = attr_dict.get("src") or ""
+            if src and not src.startswith("data:"):
+                self.first_img = src.strip()
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() == "title":
+            self._in_title = False
+            if self._title_parts and not self.html_title:
+                self.html_title = "".join(self._title_parts).strip()
+
+    def handle_data(self, data: str) -> None:
+        if self._in_title:
+            self._title_parts.append(data)
+
+
+async def _scrape_link_preview(url: str) -> dict:
+    """
+    Fetch `url` and extract Open Graph / fallback metadata.
+
+    Returns a dict with keys: title, description, image.
+    Never raises — on any error returns an empty dict so the endpoint
+    can still return partial data (domain only).
+    """
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; TMSBot/1.0)"}
+    try:
+        async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            html = response.text
+    except Exception as exc:
+        logger.warning("link_preview: failed to fetch %s — %s: %s", url, type(exc).__name__, exc)
+        return {}
+
+    parser = _OGParser()
+    try:
+        parser.feed(html)
+    except Exception as exc:
+        logger.warning("link_preview: HTML parse error for %s — %s", url, exc)
+        return {}
+
+    title = parser.og_title or parser.html_title or None
+    description = parser.og_description or parser.meta_description or None
+    image = parser.og_image or parser.first_img or None
+
+    return {k: v for k, v in {"title": title, "description": description, "image": image}.items() if v}
+
+
+# ---------------------------------------------------------------------------
+# Link Preview endpoint
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/link-preview",
+    response_model=LinkPreviewResponse,
+    summary="Fetch Open Graph link preview",
+    description=(
+        "Scrapes og:title / og:description / og:image from the given URL and returns "
+        "a preview card payload. Results are cached in Redis for 24 hours."
+    ),
+)
+async def get_link_preview(
+    url: str = Query(..., description="Fully-qualified URL to preview (must start with http:// or https://)"),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Return an Open Graph preview card for a URL.
+
+    - **url**: The target URL (must be http/https)
+
+    On scrape errors the endpoint still returns 200 with just the `domain` field populated
+    so the client can render a minimal fallback card.
+    """
+    # --- Validate URL scheme ---
+    if not url.startswith(("http://", "https://")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid URL: must start with http:// or https://",
+        )
+
+    parsed = urlparse(url)
+    domain = parsed.hostname or ""
+    favicon = f"https://{domain}/favicon.ico" if domain else None
+
+    # --- Cache lookup ---
+    cache_key = f"link_preview:{hashlib.sha256(url.encode()).hexdigest()}"
+    cached = await cache.get(cache_key)
+    if cached is not None:
+        # cache.get already deserialises JSON → dict
+        data = cached if isinstance(cached, dict) else json.loads(cached)
+        return LinkPreviewResponse(**data)
+
+    # --- Scrape ---
+    scraped = await _scrape_link_preview(url)
+
+    result = LinkPreviewResponse(
+        url=url,
+        domain=domain,
+        favicon=favicon,
+        title=scraped.get("title"),
+        description=scraped.get("description"),
+        image=scraped.get("image"),
+    )
+
+    # --- Cache result ---
+    await cache.set(cache_key, result.model_dump(), ttl=86400)
+
+    return result
 
 
 @router.post(
