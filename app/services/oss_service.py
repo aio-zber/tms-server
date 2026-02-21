@@ -344,7 +344,7 @@ class OSSService:
         image_bytes: bytes,
         folder: str = "thumbnails",
         size: Tuple[int, int] = (300, 300)
-    ) -> Optional[Tuple[bytes, str]]:
+    ) -> Optional[Tuple[bytes, str, str]]:
         """
         Generate thumbnail for an image.
 
@@ -354,7 +354,7 @@ class OSSService:
             size: Thumbnail size (width, height)
 
         Returns:
-            Tuple of (thumbnail_bytes, thumbnail_url) or None if generation fails
+            Tuple of (thumbnail_bytes, thumbnail_url, thumbnail_oss_key) or None if generation fails
         """
         try:
             # Open image with Pillow
@@ -402,7 +402,7 @@ class OSSService:
 
             logger.info(f"Thumbnail generated: {oss_key} ({len(thumbnail_bytes)} bytes)")
 
-            return (thumbnail_bytes, thumbnail_url)
+            return (thumbnail_bytes, thumbnail_url, oss_key)
 
         except Exception as e:
             logger.warning(f"Failed to generate thumbnail: {e}")

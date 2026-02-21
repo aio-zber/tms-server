@@ -139,6 +139,18 @@ class ConversationService:
         conversation_dict["members"] = enriched_members
         conversation_dict["member_count"] = len(enriched_members)
 
+        # For group conversations: refresh avatar_url from avatar_oss_key if available
+        # (OSS signed URLs expire after 7 days; re-signing is a local HMAC — no OSS network call)
+        if conversation.type != ConversationType.DM and conversation.avatar_oss_key:
+            try:
+                from app.services.oss_service import OSSService
+                oss = OSSService()
+                conversation_dict["avatar_url"] = oss.generate_signed_url(
+                    conversation.avatar_oss_key, disposition="inline"
+                )
+            except Exception:
+                pass  # Keep original signed URL on failure
+
         # Compute display_name and avatar_url for DMs (Telegram/Messenger pattern)
         # For DMs: display the OTHER user's name and profile image
         # For groups: use the group name and group avatar
@@ -363,7 +375,8 @@ class ConversationService:
         conversation_id: str,
         user_id: str,
         name: Optional[str] = None,
-        avatar_url: Optional[str] = None
+        avatar_url: Optional[str] = None,
+        avatar_oss_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Update conversation details.
@@ -373,6 +386,7 @@ class ConversationService:
             user_id: User UUID (must be admin)
             name: Updated name
             avatar_url: Updated avatar URL
+            avatar_oss_key: OSS object key for avatar (enables URL refresh on fetch)
 
         Returns:
             Updated conversation
@@ -406,7 +420,8 @@ class ConversationService:
         updated_conversation = await self.conversation_repo.update_conversation(
             conversation_id,
             name=name,
-            avatar_url=avatar_url
+            avatar_url=avatar_url,
+            avatar_oss_key=avatar_oss_key,
         )
 
         # Flush but don't commit yet

@@ -72,6 +72,55 @@ class MessageService:
         )
         return result.scalar_one_or_none() is not None
 
+    @staticmethod
+    def _refresh_metadata_urls(metadata_json: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """
+        Refresh expired signed URLs in message metadata using the stored ossKey.
+
+        OSS signed URLs expire after 7 days. Since sign_url() is a local HMAC
+        computation (no network call to OSS), this is free and does not add load
+        to the OSS bucket. We simply regenerate fresh 7-day URLs on every fetch.
+
+        Only messages with an ossKey in their metadata are affected — text messages
+        and E2EE-encrypted messages that store their own keys are left untouched.
+        """
+        if not metadata_json or "ossKey" not in metadata_json:
+            return metadata_json
+
+        try:
+            from app.services.oss_service import OSSService
+            oss = OSSService()
+            oss_key = metadata_json["ossKey"]
+
+            # Determine if file should open inline in browser
+            mime_type = metadata_json.get("mimeType", "")
+            original_mime = metadata_json.get("encryption", {}).get("originalMimeType", "") if metadata_json.get("encryption") else ""
+            effective_mime = original_mime or mime_type
+            viewable_types = [
+                "application/pdf",
+                "image/jpeg", "image/png", "image/gif", "image/webp",
+                "text/plain",
+            ]
+            is_viewable = any(effective_mime.startswith(t) or effective_mime == t for t in viewable_types)
+            file_name = metadata_json.get("fileName")
+
+            refreshed = dict(metadata_json)
+            refreshed["fileUrl"] = oss.generate_signed_url(
+                oss_key,
+                inline=is_viewable,
+                filename=file_name if is_viewable else None,
+            )
+
+            # Refresh thumbnail URL if present
+            thumb_key = metadata_json.get("thumbnailOssKey")
+            if thumb_key:
+                refreshed["thumbnailUrl"] = oss.generate_signed_url(thumb_key)
+
+            return refreshed
+        except Exception as e:
+            logger.warning(f"[MessageService] Failed to refresh signed URL for key {metadata_json.get('ossKey')}: {e}")
+            return metadata_json
+
     async def _check_user_blocked(
         self,
         sender_id: str,
@@ -207,7 +256,7 @@ class MessageService:
             "sender_id": message.sender_id,
             "content": message.content,
             "type": message.type,
-            "metadata_json": message.metadata_json,
+            "metadata_json": self._refresh_metadata_urls(message.metadata_json),
             "reply_to_id": message.reply_to_id,
             "is_edited": message.is_edited,
             "sequence_number": message.sequence_number,  # NEW: Include sequence number
@@ -320,7 +369,7 @@ class MessageService:
                             "sender_id": message.reply_to.sender_id,
                             "content": message.reply_to.content,
                             "type": message.reply_to.type,
-                            "metadata_json": message.reply_to.metadata_json or {},
+                            "metadata_json": self._refresh_metadata_urls(message.reply_to.metadata_json or {}),
                             "reply_to_id": message.reply_to.reply_to_id,
                             "is_edited": message.reply_to.is_edited,
                             # Convert datetime objects to ISO format strings with 'Z' suffix
@@ -723,7 +772,7 @@ class MessageService:
                 "sender_id": message.sender_id,
                 "content": message.content,
                 "type": message.type,
-                "metadata_json": message.metadata_json,
+                "metadata_json": self._refresh_metadata_urls(message.metadata_json),
                 "reply_to_id": message.reply_to_id,
                 "is_edited": message.is_edited,
                 "sequence_number": message.sequence_number,  # NEW: Include sequence number
@@ -829,7 +878,7 @@ class MessageService:
                             "sender_id": message.reply_to.sender_id,
                             "content": message.reply_to.content,
                             "type": message.reply_to.type,
-                            "metadata_json": message.reply_to.metadata_json or {},
+                            "metadata_json": self._refresh_metadata_urls(message.reply_to.metadata_json or {}),
                             "reply_to_id": message.reply_to.reply_to_id,
                             "is_edited": message.reply_to.is_edited,
                             "created_at": message.reply_to.created_at,
@@ -1774,6 +1823,7 @@ class MessageService:
 
         # Generate thumbnail for images (skip for encrypted files — server can't read ciphertext)
         thumbnail_url = None
+        thumbnail_oss_key = None
         if message_type == MessageType.IMAGE and not encrypted:
             print(f"[MESSAGE_SERVICE] 🖼️ Generating image thumbnail...")
             try:
@@ -1788,6 +1838,7 @@ class MessageService:
 
                 if thumbnail_result:
                     thumbnail_url = thumbnail_result[1]
+                    thumbnail_oss_key = thumbnail_result[2]
                     print(f"[MESSAGE_SERVICE] ✅ Thumbnail generated: {thumbnail_url}")
                 else:
                     print(f"[MESSAGE_SERVICE] ⚠️ Thumbnail generation returned None")
@@ -1807,9 +1858,11 @@ class MessageService:
         # Note: OSS bucket doesn't support response-content-disposition override
         # Browser handles file viewing natively (PDFs show inline, others download)
 
-        # Add thumbnail URL if available
+        # Add thumbnail URL and key if available (key enables URL refresh on fetch)
         if thumbnail_url:
             metadata_json["thumbnailUrl"] = thumbnail_url
+        if thumbnail_oss_key:
+            metadata_json["thumbnailOssKey"] = thumbnail_oss_key
 
         # Add duration for voice messages
         if message_type == MessageType.VOICE and duration:

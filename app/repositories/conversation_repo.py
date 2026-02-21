@@ -207,7 +207,8 @@ class ConversationRepository(BaseRepository[Conversation]):
         self,
         conversation_id: str,
         name: Optional[str] = None,
-        avatar_url: Optional[str] = None
+        avatar_url: Optional[str] = None,
+        avatar_oss_key: Optional[str] = None,
     ) -> Optional[Conversation]:
         """
         Update conversation details.
@@ -216,6 +217,7 @@ class ConversationRepository(BaseRepository[Conversation]):
             conversation_id: Conversation UUID
             name: Updated name
             avatar_url: Updated avatar URL
+            avatar_oss_key: OSS object key for avatar (enables URL refresh on fetch)
 
         Returns:
             Updated conversation or None
@@ -225,6 +227,8 @@ class ConversationRepository(BaseRepository[Conversation]):
             updates['name'] = name
         if avatar_url is not None:
             updates['avatar_url'] = avatar_url
+        if avatar_oss_key is not None:
+            updates['avatar_oss_key'] = avatar_oss_key
 
         if updates:
             updates['updated_at'] = utc_now()

@@ -520,13 +520,15 @@ async def upload_conversation_avatar(
         upload_result = await oss_service.upload_file(file, folder)
 
         avatar_url = upload_result["url"]
-        logger.info(f"Uploaded avatar for conversation {conversation_id}: {upload_result['oss_key']}")
+        avatar_oss_key = upload_result["oss_key"]
+        logger.info(f"Uploaded avatar for conversation {conversation_id}: {avatar_oss_key}")
 
-        # Update conversation with new avatar URL
+        # Update conversation with new avatar URL and oss_key (for URL refresh on fetch)
         updated_conversation = await service.update_conversation(
             conversation_id=conversation_id,
             user_id=user.id,
-            avatar_url=avatar_url
+            avatar_url=avatar_url,
+            avatar_oss_key=avatar_oss_key,
         )
 
         return updated_conversation
