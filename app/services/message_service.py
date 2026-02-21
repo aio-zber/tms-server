@@ -98,7 +98,8 @@ class MessageService:
             effective_mime = original_mime or mime_type
             viewable_types = [
                 "application/pdf",
-                "image/jpeg", "image/png", "image/gif", "image/webp",
+                "image/",   # all image/* types
+                "video/",   # all video/* types — browser can stream inline
                 "text/plain",
             ]
             is_viewable = any(effective_mime.startswith(t) or effective_mime == t for t in viewable_types)
