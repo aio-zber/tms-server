@@ -19,6 +19,7 @@ from app.core.security import decode_nextauth_token, SecurityException
 from app.schemas.user import UserResponse
 from app.repositories.user_repo import UserRepository
 from app.core.sso_codes import generate_sso_code, validate_sso_code
+from app.dependencies import get_current_user
 
 router = APIRouter()
 
@@ -174,6 +175,49 @@ async def login_with_credentials(
                 "type": type(e).__name__,
                 "hint": "Please contact support if the issue persists"
             }
+        )
+
+
+class VerifyPasswordRequest(BaseModel):
+    """Password verification request (re-auth before sensitive operations)."""
+    email: str = Field(..., description="User email address")
+    password: str = Field(..., description="User password to verify")
+
+
+@router.post("/verify-password", status_code=200)
+async def verify_password(
+    credentials: VerifyPasswordRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Verify the current user's password without issuing a new token.
+    Used as a re-authentication gate before sensitive operations
+    (e.g. creating or updating an encryption key backup).
+
+    The caller must already hold a valid JWT — this endpoint only confirms
+    that the supplied password belongs to the authenticated account.
+
+    Returns 200 {valid: true} on success, 401 on wrong password.
+    """
+    try:
+        await tms_client.authenticate_with_credentials(
+            credentials.email,
+            credentials.password,
+        )
+        return {"valid": True}
+    except TMSAPIException as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "error": "invalid_password",
+                "message": "Incorrect password",
+            }
+        )
+    except Exception as e:
+        logger.error(f"verify_password error: {type(e).__name__}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "internal_server_error", "message": "Verification failed"},
         )
 
 
