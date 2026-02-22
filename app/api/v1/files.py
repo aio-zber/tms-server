@@ -3,30 +3,72 @@ File Proxy API routes.
 Provides a proxy endpoint for fetching encrypted files from OSS,
 bypassing CORS restrictions on direct OSS access from the browser.
 """
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from typing import Optional
+from fastapi import APIRouter, Header, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 import httpx
 
 from app.config import settings
-from app.dependencies import get_current_user
+from app.core.database import get_db
+from app.core.security import extract_token_from_header, SecurityException
+from app.core.jwt_validator import decode_nextauth_jwt, JWTValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import Depends
 
 router = APIRouter()
+
+
+async def _authenticate_proxy(
+    token: Optional[str],
+    authorization: Optional[str],
+    db: AsyncSession,
+) -> None:
+    """
+    Authenticate a proxy request via Authorization header OR ?token= query param.
+    The token query param is needed for <img src> / <video src> usage since browsers
+    cannot send custom headers for media elements.
+    """
+    auth_header = authorization
+    if not auth_header and token:
+        auth_header = f"Bearer {token}"
+    if not auth_header:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authorization",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    try:
+        raw_token = extract_token_from_header(auth_header)
+        decode_nextauth_jwt(raw_token)  # validates signature + expiry
+    except (SecurityException, JWTValidationError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(e),
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 @router.get(
     "/proxy",
     summary="Proxy file download from OSS",
-    description="Fetches a file from Alibaba OSS and streams it back with proper headers. "
-                "Solves CORS issues when the browser needs to fetch encrypted files for decryption.",
+    description=(
+        "Fetches a file from Alibaba OSS and streams it back with proper headers. "
+        "Solves CORS issues when the browser needs to fetch encrypted files for decryption. "
+        "Accepts auth via Authorization header OR ?token= query param (for <img>/<video> src usage)."
+    ),
 )
 async def proxy_file(
     url: str = Query(..., description="OSS file URL to proxy"),
-    current_user: dict = Depends(get_current_user),
+    token: Optional[str] = Query(None, description="Bearer token — for <img>/<video> src where headers can't be set"),
+    authorization: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Proxy an OSS file URL through the backend to avoid CORS blocks.
     Only allows URLs from our configured OSS bucket.
     """
+    await _authenticate_proxy(token, authorization, db)
+
     # Validate the URL belongs to our OSS bucket
     bucket_name = settings.oss_bucket_name
     oss_endpoint = settings.oss_endpoint.replace('-internal', '')
