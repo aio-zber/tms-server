@@ -66,8 +66,11 @@ async def proxy_file(
     """
     Proxy an OSS file URL through the backend to avoid CORS blocks.
     Only allows URLs from our configured OSS bucket.
-    Streams in 64 KiB chunks to avoid HTTP/2 flow-control errors that occur
-    when the entire file is buffered into one DATA frame.
+
+    Streams in 64 KiB chunks using chunked transfer encoding (no Content-Length header).
+    Setting Content-Length on a streaming response causes uvicorn to crash with
+    'Response content longer than Content-Length' when OSS returns slightly more bytes
+    than the HEAD response advertised (e.g. due to signed-URL query params).
     """
     await _authenticate_proxy(token, authorization, db)
 
@@ -87,41 +90,48 @@ async def proxy_file(
             detail="URL is not from the allowed storage bucket"
         )
 
-    # Perform a HEAD request first to get content-type without downloading the body
+    # We need content-type before we can return StreamingResponse, but we must NOT
+    # set Content-Length — OSS signed URLs can return more bytes than HEAD advertised,
+    # which causes uvicorn to raise "Response content longer than Content-Length".
+    # Instead we use chunked transfer encoding (no Content-Length) which is safe for HTTP/2.
+    timeout = httpx.Timeout(connect=10.0, read=120.0, write=120.0, pool=10.0)
+
     try:
-        timeout = httpx.Timeout(connect=10.0, read=120.0, write=120.0, pool=10.0)
-        async with httpx.AsyncClient(timeout=timeout) as head_client:
-            head_response = await head_client.head(url)
-            content_type = head_response.headers.get("content-type", "application/octet-stream")
-            content_length = head_response.headers.get("content-length")
-    except httpx.RequestError:
-        content_type = "application/octet-stream"
-        content_length = None
+        # Start the GET stream and read just the response headers (no body yet)
+        client = httpx.AsyncClient(timeout=timeout)
+        oss_response = await client.send(
+            client.build_request("GET", url),
+            stream=True,
+        )
+        oss_response.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(
+            status_code=e.response.status_code,
+            detail=f"Failed to fetch file from storage: {e.response.status_code}"
+        )
+    except httpx.RequestError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to connect to storage: {str(e)}"
+        )
+
+    content_type = oss_response.headers.get("content-type", "application/octet-stream")
 
     async def _stream_oss() -> AsyncGenerator[bytes, None]:
-        timeout = httpx.Timeout(connect=10.0, read=120.0, write=120.0, pool=10.0)
-        async with httpx.AsyncClient(timeout=timeout) as streaming_client:
-            try:
-                async with streaming_client.stream("GET", url) as oss_response:
-                    oss_response.raise_for_status()
-                    async for chunk in oss_response.aiter_bytes(chunk_size=65536):
-                        yield chunk
-            except httpx.HTTPStatusError as e:
-                # Can't raise HTTPException inside a generator after headers are sent;
-                # just stop the stream.
-                raise RuntimeError(f"OSS returned {e.response.status_code}") from e
-
-    response_headers: dict = {
-        "Cache-Control": "private, max-age=3600",
-        # Tell nginx not to buffer this response — required for streaming to work
-        # through a reverse proxy without buffering the entire body first.
-        "X-Accel-Buffering": "no",
-    }
-    if content_length:
-        response_headers["Content-Length"] = content_length
+        try:
+            async for chunk in oss_response.aiter_bytes(chunk_size=65536):
+                yield chunk
+        finally:
+            await oss_response.aclose()
+            await client.aclose()
 
     return StreamingResponse(
         _stream_oss(),
         media_type=content_type,
-        headers=response_headers,
+        headers={
+            "Cache-Control": "private, max-age=3600",
+            # Tell nginx not to buffer this response — required for streaming to work
+            # through a reverse proxy without buffering the entire body first.
+            "X-Accel-Buffering": "no",
+        },
     )
