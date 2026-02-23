@@ -122,8 +122,8 @@ async def seed(session: AsyncSession):
 
     for uid in user_ids:
         await session.execute(text("""
-            INSERT INTO conversation_members (conversation_id, user_id, joined_at)
-            VALUES (:conv_id, :user_id, :now)
+            INSERT INTO conversation_members (conversation_id, user_id, role, is_muted, joined_at)
+            VALUES (:conv_id, :user_id, 'MEMBER', false, :now)
             ON CONFLICT DO NOTHING
         """), {"conv_id": group_conv_id, "user_id": uid, "now": now_utc()})
     await session.commit()
@@ -144,8 +144,8 @@ async def seed(session: AsyncSession):
         # Add first 10 users to each extra conversation
         for j in range(10):
             await session.execute(text("""
-                INSERT INTO conversation_members (conversation_id, user_id, joined_at)
-                VALUES (:conv_id, :user_id, :now)
+                INSERT INTO conversation_members (conversation_id, user_id, role, is_muted, joined_at)
+                VALUES (:conv_id, :user_id, 'MEMBER', false, :now)
                 ON CONFLICT DO NOTHING
             """), {"conv_id": cid, "user_id": user_ids[j], "now": now_utc()})
     await session.commit()
@@ -163,8 +163,8 @@ async def seed(session: AsyncSession):
     seq_num = seq_result.scalar()
 
     await session.execute(text("""
-        INSERT INTO messages (id, conversation_id, sender_id, content, type, sequence_number, created_at, updated_at)
-        VALUES (:id, :conv_id, :sender, 'Stress test poll', 'POLL', :seq, :now, :now)
+        INSERT INTO messages (id, conversation_id, sender_id, content, type, is_edited, metadata_json, sequence_number, created_at, updated_at)
+        VALUES (:id, :conv_id, :sender, 'Stress test poll', 'POLL', false, '{}'::jsonb, :seq, :now, :now)
         ON CONFLICT DO NOTHING
     """), {"id": poll_msg_id, "conv_id": group_conv_id, "sender": user_ids[0], "seq": seq_num, "now": now_utc()})
 
@@ -204,8 +204,8 @@ async def seed(session: AsyncSession):
             "height": 100,
         })
         await session.execute(text("""
-            INSERT INTO messages (id, conversation_id, sender_id, content, type, metadata_json, sequence_number, created_at, updated_at)
-            VALUES (:id, :conv_id, :sender, :content, 'IMAGE', :meta::jsonb, :seq, :now, :now)
+            INSERT INTO messages (id, conversation_id, sender_id, content, type, is_edited, metadata_json, sequence_number, created_at, updated_at)
+            VALUES (:id, :conv_id, :sender, :content, 'IMAGE', false, :meta::jsonb, :seq, :now, :now)
             ON CONFLICT DO NOTHING
         """), {
             "id": mid, "conv_id": group_conv_id, "sender": user_ids[i % N_USERS],
@@ -229,8 +229,8 @@ async def seed(session: AsyncSession):
             "ossKey": f"stress/files/stress_file_{i:04d}.pdf",
         })
         await session.execute(text("""
-            INSERT INTO messages (id, conversation_id, sender_id, content, type, metadata_json, sequence_number, created_at, updated_at)
-            VALUES (:id, :conv_id, :sender, :content, 'FILE', :meta::jsonb, :seq, :now, :now)
+            INSERT INTO messages (id, conversation_id, sender_id, content, type, is_edited, metadata_json, sequence_number, created_at, updated_at)
+            VALUES (:id, :conv_id, :sender, :content, 'FILE', false, :meta::jsonb, :seq, :now, :now)
             ON CONFLICT DO NOTHING
         """), {
             "id": mid, "conv_id": group_conv_id, "sender": user_ids[i % N_USERS],
@@ -246,8 +246,8 @@ async def seed(session: AsyncSession):
         for j in range(N_TEXT_PER_EXTRA):
             mid = new_id()
             await session.execute(text("""
-                INSERT INTO messages (id, conversation_id, sender_id, content, type, sequence_number, created_at, updated_at)
-                VALUES (:id, :conv_id, :sender, :content, 'TEXT', :seq, :now, :now)
+                INSERT INTO messages (id, conversation_id, sender_id, content, type, is_edited, metadata_json, sequence_number, created_at, updated_at)
+                VALUES (:id, :conv_id, :sender, :content, 'TEXT', false, '{}'::jsonb, :seq, :now, :now)
                 ON CONFLICT DO NOTHING
             """), {
                 "id": mid, "conv_id": cid, "sender": user_ids[j % 10],
