@@ -72,6 +72,56 @@ class MessageService:
         )
         return result.scalar_one_or_none() is not None
 
+    @staticmethod
+    def _refresh_metadata_urls(metadata_json: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """
+        Refresh expired signed URLs in message metadata using the stored ossKey.
+
+        OSS signed URLs expire after 7 days. Since sign_url() is a local HMAC
+        computation (no network call to OSS), this is free and does not add load
+        to the OSS bucket. We simply regenerate fresh 7-day URLs on every fetch.
+
+        Only messages with an ossKey in their metadata are affected — text messages
+        and E2EE-encrypted messages that store their own keys are left untouched.
+        """
+        if not metadata_json or "ossKey" not in metadata_json:
+            return metadata_json
+
+        try:
+            from app.services.oss_service import OSSService
+            oss = OSSService()
+            oss_key = metadata_json["ossKey"]
+
+            # Determine if file should open inline in browser
+            mime_type = metadata_json.get("mimeType", "")
+            original_mime = metadata_json.get("encryption", {}).get("originalMimeType", "") if metadata_json.get("encryption") else ""
+            effective_mime = original_mime or mime_type
+            viewable_types = [
+                "application/pdf",
+                "image/",   # all image/* types
+                "video/",   # all video/* types — browser can stream inline
+                "text/plain",
+            ]
+            is_viewable = any(effective_mime.startswith(t) or effective_mime == t for t in viewable_types)
+            file_name = metadata_json.get("fileName")
+
+            refreshed = dict(metadata_json)
+            refreshed["fileUrl"] = oss.generate_signed_url(
+                oss_key,
+                inline=is_viewable,
+                filename=file_name if is_viewable else None,
+            )
+
+            # Refresh thumbnail URL if present
+            thumb_key = metadata_json.get("thumbnailOssKey")
+            if thumb_key:
+                refreshed["thumbnailUrl"] = oss.generate_signed_url(thumb_key)
+
+            return refreshed
+        except Exception as e:
+            logger.warning(f"[MessageService] Failed to refresh signed URL for key {metadata_json.get('ossKey')}: {e}")
+            return metadata_json
+
     async def _check_user_blocked(
         self,
         sender_id: str,
@@ -207,10 +257,13 @@ class MessageService:
             "sender_id": message.sender_id,
             "content": message.content,
             "type": message.type,
-            "metadata_json": message.metadata_json,
+            "metadata_json": self._refresh_metadata_urls(message.metadata_json),
             "reply_to_id": message.reply_to_id,
             "is_edited": message.is_edited,
             "sequence_number": message.sequence_number,  # NEW: Include sequence number
+            "encrypted": message.encrypted,
+            "encryption_version": message.encryption_version,
+            "sender_key_id": message.sender_key_id,
             # Convert datetime objects to ISO format strings with 'Z' suffix (UTC indicator)
             "created_at": to_iso_utc(message.created_at),
             "updated_at": to_iso_utc(message.updated_at),
@@ -317,7 +370,7 @@ class MessageService:
                             "sender_id": message.reply_to.sender_id,
                             "content": message.reply_to.content,
                             "type": message.reply_to.type,
-                            "metadata_json": message.reply_to.metadata_json or {},
+                            "metadata_json": self._refresh_metadata_urls(message.reply_to.metadata_json or {}),
                             "reply_to_id": message.reply_to.reply_to_id,
                             "is_edited": message.reply_to.is_edited,
                             # Convert datetime objects to ISO format strings with 'Z' suffix
@@ -378,7 +431,10 @@ class MessageService:
         content: Optional[str],
         message_type: MessageType = MessageType.TEXT,
         metadata_json: Dict[str, Any] = None,
-        reply_to_id: Optional[str] = None
+        reply_to_id: Optional[str] = None,
+        encrypted: bool = False,
+        encryption_version: Optional[int] = None,
+        sender_key_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Send a new message.
@@ -390,6 +446,9 @@ class MessageService:
             message_type: Type of message
             metadata_json: Message metadata
             reply_to_id: ID of message being replied to
+            encrypted: Whether the message is E2EE encrypted
+            encryption_version: Encryption protocol version
+            sender_key_id: Sender key ID for group messages
 
         Returns:
             Created message with enriched data
@@ -434,7 +493,10 @@ class MessageService:
             type=message_type,
             metadata_json=metadata_json or {},
             reply_to_id=reply_to_id,
-            sequence_number=sequence_number  # NEW: Include sequence number
+            sequence_number=sequence_number,  # NEW: Include sequence number
+            encrypted=encrypted,
+            encryption_version=encryption_version,
+            sender_key_id=sender_key_id,
         )
 
         # CRITICAL FIX: Ensure message.id is populated before creating statuses
@@ -711,10 +773,13 @@ class MessageService:
                 "sender_id": message.sender_id,
                 "content": message.content,
                 "type": message.type,
-                "metadata_json": message.metadata_json,
+                "metadata_json": self._refresh_metadata_urls(message.metadata_json),
                 "reply_to_id": message.reply_to_id,
                 "is_edited": message.is_edited,
                 "sequence_number": message.sequence_number,  # NEW: Include sequence number
+                "encrypted": message.encrypted,
+                "encryption_version": message.encryption_version,
+                "sender_key_id": message.sender_key_id,
                 "created_at": message.created_at,
                 "updated_at": message.updated_at,
                 "deleted_at": message.deleted_at,
@@ -814,7 +879,7 @@ class MessageService:
                             "sender_id": message.reply_to.sender_id,
                             "content": message.reply_to.content,
                             "type": message.reply_to.type,
-                            "metadata_json": message.reply_to.metadata_json or {},
+                            "metadata_json": self._refresh_metadata_urls(message.reply_to.metadata_json or {}),
                             "reply_to_id": message.reply_to.reply_to_id,
                             "is_edited": message.reply_to.is_edited,
                             "created_at": message.reply_to.created_at,
@@ -1671,7 +1736,9 @@ class MessageService:
         conversation_id: str,
         file: "UploadFile",
         reply_to_id: Optional[str] = None,
-        duration: Optional[int] = None
+        duration: Optional[int] = None,
+        encrypted: bool = False,
+        encryption_metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Handle file upload and create message.
@@ -1679,12 +1746,18 @@ class MessageService:
         Uploads file to OSS, generates thumbnail if applicable, and creates
         a message with the appropriate type (IMAGE, FILE, or VOICE).
 
+        For E2EE encrypted files: skips MIME validation (ciphertext is always
+        application/octet-stream) and uses originalMimeType from encryption
+        metadata to determine message type (Messenger/WhatsApp pattern).
+
         Args:
             sender_id: Sender user ID
             conversation_id: Conversation ID
             file: Uploaded file (FastAPI UploadFile)
             reply_to_id: Optional message ID to reply to
             duration: Optional duration for voice messages (seconds)
+            encrypted: Whether the file is E2EE encrypted
+            encryption_metadata: Encryption metadata with originalMimeType, etc.
 
         Returns:
             Created message with enriched data
@@ -1699,19 +1772,35 @@ class MessageService:
         print(f"[MESSAGE_SERVICE] 📁 Starting file upload: {file.filename}")
         print(f"[MESSAGE_SERVICE] 📁 Content-Type: {file.content_type}")
         print(f"[MESSAGE_SERVICE] 📁 Conversation: {conversation_id}")
+        print(f"[MESSAGE_SERVICE] 📁 Encrypted: {encrypted}")
 
         # Initialize OSS service
         oss_service = OSSService()
 
-        # Validate file type and size
         allowed_types = settings.get_allowed_file_types_list()
         max_size = settings.max_upload_size
 
-        print(f"[MESSAGE_SERVICE] 🔍 Validating file (max_size: {max_size}, allowed_types: {len(allowed_types)})")
-        oss_service.validate_file(file, allowed_types, max_size)
-
-        # Determine message type based on MIME type
-        content_type = file.content_type or "application/octet-stream"
+        if encrypted and encryption_metadata:
+            # Encrypted files: skip MIME validation (ciphertext is always application/octet-stream)
+            # Only validate file size (security boundary)
+            print(f"[MESSAGE_SERVICE] 🔐 Encrypted upload — skipping MIME validation, checking size only")
+            file.file.seek(0, 2)
+            file_size = file.file.tell()
+            file.file.seek(0)
+            if file_size == 0:
+                raise HTTPException(status_code=400, detail="File is empty")
+            if file_size > max_size:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"File too large ({file_size} bytes, max {max_size})"
+                )
+            # Use original MIME type from encryption metadata for message type detection
+            content_type = encryption_metadata.get("originalMimeType", "application/octet-stream")
+            print(f"[MESSAGE_SERVICE] 🔐 Using originalMimeType: {content_type}")
+        else:
+            print(f"[MESSAGE_SERVICE] 🔍 Validating file (max_size: {max_size}, allowed_types: {len(allowed_types)})")
+            oss_service.validate_file(file, allowed_types, max_size)
+            content_type = file.content_type or "application/octet-stream"
 
         if content_type.startswith('image/'):
             message_type = MessageType.IMAGE
@@ -1733,9 +1822,10 @@ class MessageService:
         upload_result = await oss_service.upload_file(file, folder=folder)
         print(f"[MESSAGE_SERVICE] ✅ File uploaded: {upload_result['url']}")
 
-        # Generate thumbnail for images
+        # Generate thumbnail for images (skip for encrypted files — server can't read ciphertext)
         thumbnail_url = None
-        if message_type == MessageType.IMAGE:
+        thumbnail_oss_key = None
+        if message_type == MessageType.IMAGE and not encrypted:
             print(f"[MESSAGE_SERVICE] 🖼️ Generating image thumbnail...")
             try:
                 # Reset file pointer and read content for thumbnail
@@ -1749,6 +1839,7 @@ class MessageService:
 
                 if thumbnail_result:
                     thumbnail_url = thumbnail_result[1]
+                    thumbnail_oss_key = thumbnail_result[2]
                     print(f"[MESSAGE_SERVICE] ✅ Thumbnail generated: {thumbnail_url}")
                 else:
                     print(f"[MESSAGE_SERVICE] ⚠️ Thumbnail generation returned None")
@@ -1768,14 +1859,20 @@ class MessageService:
         # Note: OSS bucket doesn't support response-content-disposition override
         # Browser handles file viewing natively (PDFs show inline, others download)
 
-        # Add thumbnail URL if available
+        # Add thumbnail URL and key if available (key enables URL refresh on fetch)
         if thumbnail_url:
             metadata_json["thumbnailUrl"] = thumbnail_url
+        if thumbnail_oss_key:
+            metadata_json["thumbnailOssKey"] = thumbnail_oss_key
 
         # Add duration for voice messages
         if message_type == MessageType.VOICE and duration:
             metadata_json["duration"] = duration
             print(f"[MESSAGE_SERVICE] 🎤 Voice duration: {duration}s")
+
+        # Add encryption metadata if present (E2EE file uploads)
+        if encrypted and encryption_metadata:
+            metadata_json["encryption"] = encryption_metadata
 
         print(f"[MESSAGE_SERVICE] 📋 Metadata: {metadata_json}")
 
@@ -1789,7 +1886,9 @@ class MessageService:
             content=content,
             message_type=message_type,
             metadata_json=metadata_json,
-            reply_to_id=reply_to_id
+            reply_to_id=reply_to_id,
+            encrypted=encrypted,
+            encryption_version=1 if encrypted else None,
         )
 
         print(f"[MESSAGE_SERVICE] ✅ File message created: {message.get('id')}")

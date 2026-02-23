@@ -62,6 +62,12 @@ class Conversation(Base, UUIDMixin, TimestampMixin):
         doc="Group avatar URL (null for DMs)"
     )
 
+    avatar_oss_key: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+        doc="OSS object key for group avatar — used to refresh expired signed URLs"
+    )
+
     # Creator reference
     created_by: Mapped[str | None] = mapped_column(
         String(255),

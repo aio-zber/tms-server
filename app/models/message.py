@@ -9,10 +9,12 @@ from typing import TYPE_CHECKING, List
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     JSON,
@@ -110,6 +112,26 @@ class Message(Base, UUIDMixin):
         default=False,
         nullable=False,
         doc="Whether the message has been edited"
+    )
+
+    # E2EE encryption fields
+    encrypted: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        doc="Whether message content is E2EE encrypted"
+    )
+
+    encryption_version: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        doc="Encryption protocol version (1 = Signal Protocol)"
+    )
+
+    sender_key_id: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        doc="Sender key ID for group encrypted messages"
     )
 
     # Sequence number for deterministic ordering

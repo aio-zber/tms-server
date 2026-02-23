@@ -30,11 +30,21 @@ class MessageCreate(BaseModel):
     metadata_json: Dict[str, Any] = Field(default_factory=dict, description="Message metadata")
     reply_to_id: Optional[str] = Field(None, description="ID of message being replied to")
 
+    # E2EE encryption fields
+    encrypted: bool = Field(default=False, description="Whether message content is E2EE encrypted")
+    encryption_version: Optional[int] = Field(None, description="Encryption protocol version")
+    sender_key_id: Optional[str] = Field(None, max_length=64, description="Sender key ID for group messages")
+
     @field_validator("content")
     @classmethod
     def validate_content(cls, v: Optional[str], info) -> Optional[str]:
         """Validate content based on message type."""
         message_type = info.data.get("type")
+        encrypted = info.data.get("encrypted", False)
+
+        # Skip text content validation for encrypted messages (content is a JSON blob)
+        if encrypted:
+            return v
 
         if message_type == MessageType.TEXT and not v:
             raise ValueError("Text messages must have content")
@@ -51,7 +61,8 @@ class MessageCreate(BaseModel):
                 "content": "Hello, how are you?",
                 "type": "text",
                 "metadata_json": {},
-                "reply_to_id": None
+                "reply_to_id": None,
+                "encrypted": False
             }
         }
 
@@ -183,6 +194,11 @@ class MessageResponse(BaseModel):
     reply_to_id: Optional[str] = Field(None, serialization_alias="replyToId")
     is_edited: bool = Field(serialization_alias="isEdited")
     sequence_number: int = Field(..., serialization_alias="sequenceNumber", description="Monotonically increasing sequence number per conversation")
+
+    # E2EE encryption fields
+    encrypted: bool = Field(default=False, description="Whether message content is E2EE encrypted")
+    encryption_version: Optional[int] = Field(None, serialization_alias="encryptionVersion", description="Encryption protocol version")
+    sender_key_id: Optional[str] = Field(None, serialization_alias="senderKeyId", description="Sender key ID for group messages")
     created_at: datetime = Field(serialization_alias="createdAt")
     updated_at: Optional[datetime] = Field(None, serialization_alias="updatedAt")
     deleted_at: Optional[datetime] = Field(None, serialization_alias="deletedAt")

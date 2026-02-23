@@ -72,13 +72,23 @@ class ConversationService:
                 creator = result.scalar_one_or_none()
 
                 if creator:
-                    creator_data = await tms_client.get_user(
-                        creator.tms_user_id,
-                        use_cache=True
-                    )
-                    conversation_dict["creator"] = creator_data
-            except (TMSAPIException, Exception):
-                # Fallback to basic creator info
+                    try:
+                        creator_data = await tms_client.get_user(
+                            creator.tms_user_id,
+                            use_cache=True
+                        )
+                        conversation_dict["creator"] = creator_data
+                    except (TMSAPIException, Exception):
+                        # Fallback to local DB data
+                        conversation_dict["creator"] = {
+                            "id": str(creator.id),
+                            "tms_user_id": creator.tms_user_id,
+                            "email": creator.email or "",
+                            "first_name": creator.first_name or "",
+                            "last_name": creator.last_name or "",
+                            "image": creator.image or "",
+                        }
+            except Exception:
                 conversation_dict["creator"] = {
                     "id": str(conversation.created_by)
                 }
@@ -95,36 +105,51 @@ class ConversationService:
                 "mute_until": member.mute_until
             }
 
-            # Fetch user data from TMS
+            # Fetch user data from TMS, with local DB fallback
             if member.user:
+                # Build local DB fallback data (always available, no API call needed)
+                local_user_data = {
+                    "id": str(member.user_id),
+                    "tms_user_id": member.user.tms_user_id,
+                    "email": member.user.email or "",
+                    "first_name": member.user.first_name or "",
+                    "last_name": member.user.last_name or "",
+                    "middle_name": member.user.middle_name or "",
+                    "username": member.user.username or "",
+                    "image": member.user.image or "",
+                    "role": member.user.role or "",
+                    "position_title": member.user.position_title or "",
+                    "division": member.user.division or "",
+                    "department": member.user.department or "",
+                }
+
                 try:
-                    print(f"[CONVERSATION_SERVICE] Fetching TMS user data for: {member.user.tms_user_id}")
                     # Use API Key authentication for server-to-server calls (PREFERRED METHOD)
                     user_data = await tms_client.get_user_by_id_with_api_key(
                         member.user.tms_user_id,
                         use_cache=True
                     )
-                    print(f"[CONVERSATION_SERVICE] ✅ Got TMS user data: {user_data.get('email', 'N/A')}")
                     member_dict["user"] = user_data
-                except TMSAPIException as e:
-                    # Fallback to basic user info
-                    print(f"[CONVERSATION_SERVICE] ❌ TMS API failed: {str(e)}")
-                    member_dict["user"] = {
-                        "id": str(member.user_id),
-                        "tms_user_id": member.user.tms_user_id
-                    }
-                except Exception as e:
-                    # Catch all other exceptions
-                    print(f"[CONVERSATION_SERVICE] ❌ Unexpected error: {type(e).__name__}: {str(e)}")
-                    member_dict["user"] = {
-                        "id": str(member.user_id),
-                        "tms_user_id": member.user.tms_user_id
-                    }
+                except (TMSAPIException, Exception):
+                    # Fallback to local DB data (has name, email, image from last sync)
+                    member_dict["user"] = local_user_data
 
             enriched_members.append(member_dict)
 
         conversation_dict["members"] = enriched_members
         conversation_dict["member_count"] = len(enriched_members)
+
+        # For group conversations: refresh avatar_url from avatar_oss_key if available
+        # (OSS signed URLs expire after 7 days; re-signing is a local HMAC — no OSS network call)
+        if conversation.type != ConversationType.DM and conversation.avatar_oss_key:
+            try:
+                from app.services.oss_service import OSSService
+                oss = OSSService()
+                conversation_dict["avatar_url"] = oss.generate_signed_url(
+                    conversation.avatar_oss_key, disposition="inline"
+                )
+            except Exception:
+                pass  # Keep original signed URL on failure
 
         # Compute display_name and avatar_url for DMs (Telegram/Messenger pattern)
         # For DMs: display the OTHER user's name and profile image
@@ -175,7 +200,8 @@ class ConversationService:
                 "content": last_message.content,
                 "type": last_message.type,
                 "sender_id": last_message.sender_id,
-                "timestamp": last_message.created_at  # Frontend expects "timestamp"
+                "timestamp": last_message.created_at,  # Frontend expects "timestamp"
+                "encrypted": getattr(last_message, 'encrypted', False) or False,
             }
 
         return conversation_dict
@@ -349,7 +375,8 @@ class ConversationService:
         conversation_id: str,
         user_id: str,
         name: Optional[str] = None,
-        avatar_url: Optional[str] = None
+        avatar_url: Optional[str] = None,
+        avatar_oss_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Update conversation details.
@@ -359,6 +386,7 @@ class ConversationService:
             user_id: User UUID (must be admin)
             name: Updated name
             avatar_url: Updated avatar URL
+            avatar_oss_key: OSS object key for avatar (enables URL refresh on fetch)
 
         Returns:
             Updated conversation
@@ -392,7 +420,8 @@ class ConversationService:
         updated_conversation = await self.conversation_repo.update_conversation(
             conversation_id,
             name=name,
-            avatar_url=avatar_url
+            avatar_url=avatar_url,
+            avatar_oss_key=avatar_oss_key,
         )
 
         # Flush but don't commit yet
@@ -453,6 +482,7 @@ class ConversationService:
                     'status': 'sent',
                     'metadata': system_msg.metadata_json,
                     'isEdited': system_msg.is_edited,
+                    'sequenceNumber': system_msg.sequence_number,
                     'createdAt': system_msg.created_at.isoformat()
                 }
 
@@ -597,6 +627,7 @@ class ConversationService:
                     'status': 'sent',
                     'metadata': system_msg.metadata_json,
                     'isEdited': system_msg.is_edited,
+                    'sequenceNumber': system_msg.sequence_number,
                     'createdAt': system_msg.created_at.isoformat()
                 }
 
@@ -738,6 +769,7 @@ class ConversationService:
                     'status': 'sent',
                     'metadata': system_msg.metadata_json,
                     'isEdited': system_msg.is_edited,
+                    'sequenceNumber': system_msg.sequence_number,
                     'createdAt': system_msg.created_at.isoformat()
                 }
 
@@ -852,6 +884,7 @@ class ConversationService:
                     'status': 'sent',
                     'metadata': system_msg.metadata_json,
                     'isEdited': system_msg.is_edited,
+                    'sequenceNumber': system_msg.sequence_number,
                     'createdAt': system_msg.created_at.isoformat()
                 }
 
