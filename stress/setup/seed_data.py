@@ -117,7 +117,7 @@ async def seed(session: AsyncSession):
     group_conv_id = new_id()
     await session.execute(text("""
         INSERT INTO conversations (id, type, name, created_by, created_at, updated_at)
-        VALUES (:id, 'group', 'Stress Test Group', :creator, :now, :now)
+        VALUES (:id, 'GROUP', 'Stress Test Group', :creator, :now, :now)
         ON CONFLICT DO NOTHING
     """), {"id": group_conv_id, "creator": user_ids[0], "now": now_utc()})
 
@@ -138,7 +138,7 @@ async def seed(session: AsyncSession):
         extra_conv_ids.append(cid)
         await session.execute(text("""
             INSERT INTO conversations (id, type, name, created_by, created_at, updated_at)
-            VALUES (:id, 'group', :name, :creator, :now, :now)
+            VALUES (:id, 'GROUP', :name, :creator, :now, :now)
             ON CONFLICT DO NOTHING
         """), {"id": cid, "name": f"Stress Conv {i}", "creator": user_ids[i % N_USERS], "now": now_utc()})
 
