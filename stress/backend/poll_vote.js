@@ -121,7 +121,8 @@ export function setup() {
 export function voteOnPoll(data) {
   const vuIndex = __VU % tokens.length;
   const token = tokens[vuIndex];
-  const optionId = data.options[Math.floor(Math.random() * data.options.length)];
+  // Use SharedArray directly (setup return values lose SharedArray references in k6)
+  const optionId = pollOptions[Math.floor(Math.random() * pollOptions.length)];
 
   const payload = JSON.stringify({ option_ids: [optionId] });
   const params = {
