@@ -86,8 +86,8 @@ async def seed(session: AsyncSession):
         user_ids.append(uid)
         user_tms_ids.append(tms_id)
         await session.execute(text("""
-            INSERT INTO users (id, tms_user_id, email, username, first_name, last_name, role, is_active, settings_json, created_at, updated_at)
-            VALUES (:id, :tms_id, :email, :username, :first, :last, 'MEMBER', true, :settings, :now, :now)
+            INSERT INTO users (id, tms_user_id, email, username, first_name, last_name, role, is_active, is_leader, settings_json, created_at, updated_at)
+            VALUES (:id, :tms_id, :email, :username, :first, :last, 'MEMBER', true, false, :settings, :now, :now)
             ON CONFLICT (tms_user_id) DO UPDATE
                 SET email = EXCLUDED.email, updated_at = EXCLUDED.updated_at
             RETURNING id
@@ -96,7 +96,7 @@ async def seed(session: AsyncSession):
             "tms_id": tms_id,
             "email": f"stress_user_{i:04d}@test.local",
             "username": f"stress_{i:04d}",
-            "first": f"Stress",
+            "first": "Stress",
             "last": f"User{i:04d}",
             "settings": "{}",
             "now": now_utc(),
