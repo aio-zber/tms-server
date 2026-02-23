@@ -113,7 +113,7 @@ export function sendToSingleConversation(data) {
   check(res, {
     'message sent (200/201)': (r) => r.status === 200 || r.status === 201,
     'has message id': (r) => {
-      try { return !!JSON.parse(r.body).data?.id; } catch (e) { return false; }
+      try { return !!JSON.parse(r.body)?.id; } catch (e) { return false; }
     },
   });
 
@@ -126,7 +126,9 @@ export function sendToSingleConversation(data) {
 
 export function sendToDistributedConversations(data) {
   const vuIndex = __VU % tokens.length;
-  const token = tokens[vuIndex];
+  // Extra convs only have users 0-9 as members — use modulo 10
+  const memberIndex = vuIndex % 10;
+  const token = tokens[memberIndex];
 
   // Each VU consistently targets the same conversation (index-based)
   const convIndex = (__VU - 1) % data.extraConvIds.length;
