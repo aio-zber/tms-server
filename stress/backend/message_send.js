@@ -26,7 +26,8 @@ const tokens = new SharedArray('tokens', function () {
 });
 
 const convData = new SharedArray('conversations', function () {
-  return JSON.parse(open('../data/conversation_ids.json'));
+  // SharedArray requires an array; wrap the object in one
+  return [JSON.parse(open('../data/conversation_ids.json'))];
 });
 
 // ─── Custom Metrics ─────────────────────────────────────────────────────────────
