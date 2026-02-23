@@ -189,9 +189,8 @@ class PollService:
         Raises:
             HTTPException: If validation fails
         """
-        # Fetch poll with row-level lock to prevent concurrent modifications
         result = await self.db.execute(
-            select(Poll).where(Poll.id == poll_id).with_for_update()
+            select(Poll).where(Poll.id == poll_id)
         )
         poll = result.scalar_one_or_none()
 

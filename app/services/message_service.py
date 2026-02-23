@@ -335,7 +335,7 @@ class MessageService:
 
         # Enrich reply_to if present
         if message.reply_to_id:
-            print(f"[ENRICH] Message {message.id} has reply_to_id: {message.reply_to_id}")
+            logger.debug("[ENRICH] Message %s has reply_to_id: %s", message.id, message.reply_to_id)
 
             # Check if reply_to is loaded without triggering lazy load
             reply_to_loaded = False
@@ -343,25 +343,25 @@ class MessageService:
                 insp = inspect(message)
                 if 'reply_to' not in insp.unloaded and message.reply_to is not None:
                     reply_to_loaded = True
-                    print(f"[ENRICH] reply_to object loaded: True")
+                    logger.debug("[ENRICH] reply_to object loaded: True")
             except Exception:
                 # If inspection fails, try direct access carefully
                 try:
                     if message.reply_to is not None:
                         reply_to_loaded = True
-                        print(f"[ENRICH] reply_to object loaded via direct access: True")
+                        logger.debug("[ENRICH] reply_to object loaded via direct access: True")
                 except Exception:
-                    print(f"[ENRICH] ⚠️ reply_to not loaded, cannot access without triggering lazy load")
+                    logger.debug("[ENRICH] reply_to not loaded, cannot access without triggering lazy load")
 
             if reply_to_loaded:
                 try:
-                    print(f"[ENRICH] Recursively enriching reply_to message: {message.reply_to.id}")
+                    logger.debug("[ENRICH] Recursively enriching reply_to message: %s", message.reply_to.id)
                     message_dict["reply_to"] = await self._enrich_message_with_user_data(
                         message.reply_to,
                         current_user_id  # Pass through for consistent status computation
                     )
                 except Exception as e:
-                    print(f"[MESSAGE_SERVICE] ❌ Failed to enrich reply_to: {e}")
+                    logger.debug("[MESSAGE_SERVICE] Failed to enrich reply_to: %s", e)
                     # Fallback: return ALL required fields for MessageResponse schema
                     try:
                         message_dict["reply_to"] = {
@@ -383,11 +383,11 @@ class MessageService:
                             "reply_to": None
                         }
                     except Exception as fallback_error:
-                        print(f"[MESSAGE_SERVICE] ❌ Even fallback failed: {fallback_error}")
+                        logger.debug("[MESSAGE_SERVICE] Even fallback failed: %s", fallback_error)
                         # If even basic access fails, set to None
                         message_dict["reply_to"] = None
             else:
-                print(f"[ENRICH] ⚠️ WARNING: reply_to_id exists but reply_to object is not loaded! Setting to None.")
+                logger.debug("[ENRICH] reply_to_id exists but reply_to object is not loaded, setting to None")
                 message_dict["reply_to"] = None
         else:
             # Explicitly set to None if no reply_to_id
@@ -395,7 +395,6 @@ class MessageService:
 
         # Enrich poll data if message type is POLL
         if message.type == MessageType.POLL:
-            print(f"[ENRICH] Message {message.id} is a poll, loading poll data...")
             try:
                 # Import poll service to build poll response
                 from app.services.poll_service import PollService
@@ -412,14 +411,11 @@ class MessageService:
                     poll_service = PollService(self.db)
                     poll_data = await poll_service._build_poll_response(poll, current_user_id)
                     message_dict["poll"] = poll_data.model_dump(by_alias=True, mode='json')
-                    print(f"[ENRICH] ✅ Poll data loaded for message {message.id}")
                 else:
-                    print(f"[ENRICH] ⚠️ WARNING: Message {message.id} is type POLL but no poll found!")
+                    logger.warning("[ENRICH] Message %s is type POLL but no poll found", message.id)
                     message_dict["poll"] = None
             except Exception as e:
-                print(f"[MESSAGE_SERVICE] ❌ Failed to load poll data: {e}")
-                import traceback
-                print(traceback.format_exc())
+                logger.error("[MESSAGE_SERVICE] Failed to load poll data: %s", e, exc_info=True)
                 message_dict["poll"] = None
 
         return message_dict
@@ -465,7 +461,6 @@ class MessageService:
 
         # Validate reply_to message if provided
         if reply_to_id:
-            print(f"[MESSAGE_SERVICE] 🔗 Validating reply_to_id: {reply_to_id}")
             parent_message = await self.message_repo.get(reply_to_id)
             if not parent_message:
                 raise HTTPException(
@@ -477,15 +472,12 @@ class MessageService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Parent message is from different conversation"
                 )
-            print(f"[MESSAGE_SERVICE] ✅ Reply validation passed for message {reply_to_id}")
 
         # Get next sequence number (inside transaction, before message creation)
         # This must happen atomically to prevent race conditions
         sequence_number = await self.message_repo.get_next_sequence_number(conversation_id)
-        print(f"[MESSAGE_SERVICE] 🔢 Assigned sequence number: {sequence_number}")
 
         # Create message
-        print(f"[MESSAGE_SERVICE] 📝 Creating message with reply_to_id: {reply_to_id}")
         message = await self.message_repo.create(
             conversation_id=conversation_id,
             sender_id=sender_id,
@@ -508,21 +500,6 @@ class MessageService:
         if not message.id:
             raise RuntimeError(f"Message id is None after flush/refresh - cannot create statuses")
 
-        print(f"[MESSAGE_SERVICE] ✅ Message created with id: {message.id}")
-        print(f"[MESSAGE_SERVICE] ✅ Message created: id={message.id}, content='{content}', reply_to_id={message.reply_to_id}")
-        print(f"[MESSAGE_SERVICE] 📅 Message timestamps: created_at={message.created_at}, updated_at={message.updated_at}")
-        print(f"[MESSAGE_SERVICE] 🗑️ Message deleted_at: {message.deleted_at}")
-        print(f"[MESSAGE_SERVICE] 🔍 Message conversation_id: {message.conversation_id}")
-        print(f"[MESSAGE_SERVICE] 🔍 Message sender_id: {message.sender_id}")
-
-        # CRITICAL DEBUG: Check if created_at is in the past
-        from datetime import datetime, timezone
-        now = datetime.now(timezone.utc)  # Keep timezone-aware (don't remove tzinfo)
-        time_diff = (now - message.created_at).total_seconds()
-        print(f"[MESSAGE_SERVICE] ⏰ Time difference from now: {time_diff} seconds")
-        if time_diff > 60:
-            print(f"[MESSAGE_SERVICE] ⚠️⚠️⚠️ WARNING: Message created_at is {time_diff/3600:.2f} hours in the PAST!")
-
         # Get conversation members for status tracking
         result = await self.db.execute(
             select(ConversationMember)
@@ -537,7 +514,7 @@ class MessageService:
                 f"(conversation_id={conversation_id}, sender_id={sender_id})"
             )
 
-        print(f"[MESSAGE_SERVICE] 📊 Creating statuses for {len(members)} members (message_id={message.id})")
+        logger.debug("[MESSAGE_SERVICE] Creating statuses for %d members (message_id=%s)", len(members), message.id)
 
         # Create message statuses for all members
         # Messenger-style: DELIVERED if recipient is online, SENT if offline
@@ -572,7 +549,7 @@ class MessageService:
                                 MessageStatusType.SENT
                             )
         except Exception as status_error:
-            print(f"[MESSAGE_SERVICE] ❌ Failed to create message statuses: {status_error}")
+            logger.error("[MESSAGE_SERVICE] Failed to create message statuses: %s", status_error)
             # Rollback to prevent partial status creation
             await self.db.rollback()
             raise HTTPException(
@@ -585,7 +562,6 @@ class MessageService:
 
         # Commit transaction
         await self.db.commit()
-        print(f"[MESSAGE_SERVICE] ✅ Transaction committed for message {message.id}")
 
         # Invalidate unread count cache for all conversation members (except sender)
         # Following Messenger/Telegram pattern: new message = increment unread for recipients
@@ -593,12 +569,9 @@ class MessageService:
             if member.user_id != sender_id:
                 await invalidate_unread_count_cache(str(member.user_id), str(conversation_id))
                 await invalidate_total_unread_count_cache(str(member.user_id))
-        print(f"[MESSAGE_SERVICE] 🗑️ Invalidated unread count cache for {len(members)-1} recipients")
 
         # Reload message with relations
         message = await self.message_repo.get_with_relations(message.id)
-        print(f"[MESSAGE_SERVICE] 🔄 Message reloaded after commit: id={message.id}")
-        print(f"[MESSAGE_SERVICE] 🔄 Reloaded timestamps: created_at={message.created_at}, updated_at={message.updated_at}, deleted_at={message.deleted_at}")
 
         # Enrich with TMS user data (pass sender_id as user_id for status computation)
         enriched_message = await self._enrich_message_with_user_data(message, sender_id)
@@ -691,7 +664,7 @@ class MessageService:
         Raises:
             HTTPException: If no access
         """
-        print(f"[MESSAGE_SERVICE] 🚀 get_conversation_messages called for conversation: {conversation_id}, limit: {limit}")
+        logger.debug("[MESSAGE_SERVICE] get_conversation_messages: conversation=%s limit=%d", conversation_id, limit)
 
         # Verify user is conversation member
         if not await self._verify_conversation_membership(conversation_id, user_id):
@@ -724,10 +697,7 @@ class MessageService:
 
             # Filter out per-user deleted messages
             if user_deleted_ids:
-                print(f"[MESSAGE_SERVICE] 🗑️ Filtering out {len(user_deleted_ids)} per-user deleted messages")
                 messages = [msg for msg in messages if msg.id not in user_deleted_ids]
-
-        print(f"[MESSAGE_SERVICE] 📦 Fetched {len(messages)} messages from DB")
         
         if not messages:
             return [], next_cursor, has_more
@@ -752,19 +722,8 @@ class MessageService:
                         users_map[user_id_key] = user
             except TMSAPIException as e:
                 # Log error but continue - we'll use cached data or fallback
-                print(f"Warning: Batch user fetch failed: {e}")
+                logger.warning("[MESSAGE_SERVICE] Batch user fetch failed: %s", e)
 
-        # Enrich messages with pre-fetched user data
-        print(f"[MESSAGE_SERVICE] 🔄 Starting message enrichment loop for {len(messages)} messages")
-        
-        # DEBUG: Count how many messages have reply_to_id vs reply_to loaded
-        messages_with_reply_id = [m for m in messages if m.reply_to_id]
-        messages_with_reply_loaded = [m for m in messages if m.reply_to]
-        print(f"[MESSAGE_SERVICE] 📊 Messages with reply_to_id: {len(messages_with_reply_id)}")
-        print(f"[MESSAGE_SERVICE] 📊 Messages with reply_to loaded: {len(messages_with_reply_loaded)}")
-        if messages_with_reply_id:
-            print(f"[MESSAGE_SERVICE] 📋 Message IDs with reply_to_id: {[str(m.id)[:8] for m in messages_with_reply_id]}")
-        
         enriched_messages = []
         for message in messages:
             message_dict = {
@@ -832,7 +791,6 @@ class MessageService:
 
             # Enrich poll data if message type is POLL
             if message.type == MessageType.POLL:
-                print(f"[MESSAGE_SERVICE] Message {message.id} is a poll, loading poll data...")
                 try:
                     from app.services.poll_service import PollService
                     from app.models.poll import Poll
@@ -846,21 +804,17 @@ class MessageService:
                         poll_service = PollService(self.db)
                         poll_data = await poll_service._build_poll_response(poll, user_id)
                         message_dict["poll"] = poll_data.model_dump(by_alias=True, mode='json')
-                        print(f"[MESSAGE_SERVICE] ✅ Poll data loaded for message {message.id}")
                     else:
-                        print(f"[MESSAGE_SERVICE] ⚠️ WARNING: Message {message.id} is type POLL but no poll found!")
+                        logger.warning("[MESSAGE_SERVICE] Message %s is type POLL but no poll found", message.id)
                         message_dict["poll"] = None
                 except Exception as e:
-                    print(f"[MESSAGE_SERVICE] ❌ Failed to load poll data: {e}")
-                    import traceback
-                    print(traceback.format_exc())
+                    logger.error("[MESSAGE_SERVICE] Failed to load poll data: %s", e, exc_info=True)
                     message_dict["poll"] = None
             else:
                 message_dict["poll"] = None
 
             # Handle reply_to enrichment (recursive)
             if message.reply_to:
-                print(f"[MESSAGE_SERVICE] ✅ Message {message.id} has reply_to: {message.reply_to.id}")
                 # For replied messages, use individual enrichment
                 # (these are typically 1-2 messages, not worth batch optimization)
                 try:
@@ -868,9 +822,8 @@ class MessageService:
                         message.reply_to,
                         user_id  # Pass through for consistent status computation
                     )
-                    print(f"[MESSAGE_SERVICE] ✅ Successfully enriched reply_to for message {message.id}")
                 except Exception as e:
-                    print(f"[MESSAGE_SERVICE] ❌ Failed to enrich reply_to: {e}")
+                    logger.debug("[MESSAGE_SERVICE] Failed to enrich reply_to: %s", e)
                     # Fallback: Include ALL required fields for MessageResponse schema
                     try:
                         message_dict["reply_to"] = {
@@ -891,12 +844,11 @@ class MessageService:
                             "reply_to": None
                         }
                     except Exception as fallback_error:
-                        print(f"[MESSAGE_SERVICE] ❌ Even fallback failed: {fallback_error}")
-                        # Last resort: set to None
+                        logger.debug("[MESSAGE_SERVICE] Even fallback failed: %s", fallback_error)
                         message_dict["reply_to"] = None
             else:
                 if message.reply_to_id:
-                    print(f"[MESSAGE_SERVICE] ⚠️ Message {message.id} has reply_to_id but reply_to is None! (Lazy load failed)")
+                    logger.debug("[MESSAGE_SERVICE] Message %s has reply_to_id but reply_to is None (lazy load failed)", message.id)
 
             enriched_messages.append(message_dict)
 
@@ -1532,7 +1484,7 @@ class MessageService:
                 }
             )
 
-        print(f"[MESSAGE_SERVICE] ✅ Marked {count} messages as DELIVERED for user {user_id} in conversation {conversation_id}")
+        logger.debug("[MESSAGE_SERVICE] Marked %d messages as DELIVERED for user %s in conversation %s", count, user_id, conversation_id)
 
         return {
             "success": True,
@@ -1588,7 +1540,7 @@ class MessageService:
 
         await self.db.commit()
 
-        print(f"[MESSAGE_SERVICE] ✅ Marked {total_count} messages as DELIVERED for user {user_id} across {len(affected_conversations)} conversations")
+        logger.debug("[MESSAGE_SERVICE] Marked %d messages as DELIVERED for user %s across %d conversations", total_count, user_id, len(affected_conversations))
 
         return {
             "success": True,
@@ -1769,10 +1721,7 @@ class MessageService:
         from app.services.oss_service import OSSService
         from app.config import settings
 
-        print(f"[MESSAGE_SERVICE] 📁 Starting file upload: {file.filename}")
-        print(f"[MESSAGE_SERVICE] 📁 Content-Type: {file.content_type}")
-        print(f"[MESSAGE_SERVICE] 📁 Conversation: {conversation_id}")
-        print(f"[MESSAGE_SERVICE] 📁 Encrypted: {encrypted}")
+        logger.debug("[MESSAGE_SERVICE] Starting file upload: %s (conversation=%s, encrypted=%s)", file.filename, conversation_id, encrypted)
 
         # Initialize OSS service
         oss_service = OSSService()
@@ -1783,7 +1732,7 @@ class MessageService:
         if encrypted and encryption_metadata:
             # Encrypted files: skip MIME validation (ciphertext is always application/octet-stream)
             # Only validate file size (security boundary)
-            print(f"[MESSAGE_SERVICE] 🔐 Encrypted upload — skipping MIME validation, checking size only")
+            logger.debug("[MESSAGE_SERVICE] Encrypted upload — skipping MIME validation")
             file.file.seek(0, 2)
             file_size = file.file.tell()
             file.file.seek(0)
@@ -1796,37 +1745,27 @@ class MessageService:
                 )
             # Use original MIME type from encryption metadata for message type detection
             content_type = encryption_metadata.get("originalMimeType", "application/octet-stream")
-            print(f"[MESSAGE_SERVICE] 🔐 Using originalMimeType: {content_type}")
         else:
-            print(f"[MESSAGE_SERVICE] 🔍 Validating file (max_size: {max_size}, allowed_types: {len(allowed_types)})")
             oss_service.validate_file(file, allowed_types, max_size)
             content_type = file.content_type or "application/octet-stream"
 
         if content_type.startswith('image/'):
             message_type = MessageType.IMAGE
-            print(f"[MESSAGE_SERVICE] 🖼️ Message type: IMAGE")
         elif content_type.startswith('audio/'):
             message_type = MessageType.VOICE
-            print(f"[MESSAGE_SERVICE] 🎤 Message type: VOICE")
         elif content_type.startswith('video/'):
             message_type = MessageType.FILE  # Videos are treated as files for now
-            print(f"[MESSAGE_SERVICE] 🎬 Message type: FILE (video)")
         else:
             message_type = MessageType.FILE
-            print(f"[MESSAGE_SERVICE] 📄 Message type: FILE")
 
         # Upload file to OSS
         folder = f"messages/{conversation_id}"
-        print(f"[MESSAGE_SERVICE] ☁️ Uploading to OSS folder: {folder}")
-
         upload_result = await oss_service.upload_file(file, folder=folder)
-        print(f"[MESSAGE_SERVICE] ✅ File uploaded: {upload_result['url']}")
 
         # Generate thumbnail for images (skip for encrypted files — server can't read ciphertext)
         thumbnail_url = None
         thumbnail_oss_key = None
         if message_type == MessageType.IMAGE and not encrypted:
-            print(f"[MESSAGE_SERVICE] 🖼️ Generating image thumbnail...")
             try:
                 # Reset file pointer and read content for thumbnail
                 file.file.seek(0)
@@ -1840,11 +1779,8 @@ class MessageService:
                 if thumbnail_result:
                     thumbnail_url = thumbnail_result[1]
                     thumbnail_oss_key = thumbnail_result[2]
-                    print(f"[MESSAGE_SERVICE] ✅ Thumbnail generated: {thumbnail_url}")
-                else:
-                    print(f"[MESSAGE_SERVICE] ⚠️ Thumbnail generation returned None")
             except Exception as e:
-                print(f"[MESSAGE_SERVICE] ⚠️ Thumbnail generation failed: {e}")
+                logger.warning("[MESSAGE_SERVICE] Thumbnail generation failed: %s", e)
                 # Non-critical - continue without thumbnail
 
         # Build metadata
@@ -1868,13 +1804,10 @@ class MessageService:
         # Add duration for voice messages
         if message_type == MessageType.VOICE and duration:
             metadata_json["duration"] = duration
-            print(f"[MESSAGE_SERVICE] 🎤 Voice duration: {duration}s")
 
         # Add encryption metadata if present (E2EE file uploads)
         if encrypted and encryption_metadata:
             metadata_json["encryption"] = encryption_metadata
-
-        print(f"[MESSAGE_SERVICE] 📋 Metadata: {metadata_json}")
 
         # Create message using existing send_message method
         # Use filename as content for file messages
@@ -1891,5 +1824,4 @@ class MessageService:
             encryption_version=1 if encrypted else None,
         )
 
-        print(f"[MESSAGE_SERVICE] ✅ File message created: {message.get('id')}")
         return message
