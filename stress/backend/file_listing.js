@@ -105,7 +105,7 @@ export function listFiles(data) {
     'has file messages': (r) => {
       try {
         const body = JSON.parse(r.body);
-        return body.data?.messages?.some(m => m.type === 'FILE');
+        return Array.isArray(body.data) && body.data.some(m => m.type === 'FILE');
       } catch (e) {
         return false;
       }
@@ -123,7 +123,7 @@ export function listFiles(data) {
   if (__VU === 1 && Math.random() < 0.03) {
     try {
       const body = JSON.parse(res.body);
-      const msgs = body.data?.messages || [];
+      const msgs = Array.isArray(body.data) ? body.data : [];
       const fileMsgs = msgs.filter(m => m.type === 'FILE');
       const withOssKey = fileMsgs.filter(m => m.metadata?.ossKey).length;
       console.log(

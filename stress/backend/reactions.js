@@ -159,7 +159,7 @@ export function fetchMessagesWithReactions(data) {
   // Fetch first page (most recent 50 messages, each with many reactions)
   const start = Date.now();
   const res = http.get(
-    `${BASE_URL}/api/v1/conversations/${data.convId}/messages?limit=50`,
+    `${BASE_URL}/api/v1/messages/conversations/${data.convId}/messages?limit=50`,
     params
   );
   const elapsed = Date.now() - start;
@@ -172,7 +172,7 @@ export function fetchMessagesWithReactions(data) {
     'has messages': (r) => {
       try {
         const body = JSON.parse(r.body);
-        return body.data && Array.isArray(body.data.messages);
+        return body.data && Array.isArray(body.data);
       } catch (e) {
         return false;
       }
@@ -187,10 +187,10 @@ export function fetchMessagesWithReactions(data) {
   } else {
     try {
       const body = JSON.parse(res.body);
-      const msgCount = body.data?.messages?.length || 0;
-      const totalReactions = body.data?.messages?.reduce(
+      const msgCount = Array.isArray(body.data) ? body.data.length : 0;
+      const totalReactions = Array.isArray(body.data) ? body.data.reduce(
         (acc, m) => acc + (m.reactions?.length || 0), 0
-      ) || 0;
+      ) : 0;
       if (__VU === 1 && Math.random() < 0.1) {
         console.log(`  📊 Page: ${msgCount} msgs, ${totalReactions} reactions, ${res.body.length} bytes, ${elapsed}ms`);
       }

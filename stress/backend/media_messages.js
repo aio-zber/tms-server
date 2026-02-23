@@ -113,7 +113,7 @@ export function openConversation(data) {
     'has image messages': (r) => {
       try {
         const body = JSON.parse(r.body);
-        const msgs = body.data?.messages || [];
+        const msgs = Array.isArray(body.data) ? body.data : [];
         return msgs.some(m => m.type === 'IMAGE');
       } catch (e) {
         return false;
@@ -132,7 +132,7 @@ export function openConversation(data) {
   if (__VU <= 2 && Math.random() < 0.05) {
     try {
       const body = JSON.parse(res.body);
-      const msgs = body.data?.messages || [];
+      const msgs = Array.isArray(body.data) ? body.data : [];
       const imageMsgs = msgs.filter(m => m.type === 'IMAGE').length;
       console.log(`  📊 VU${__VU}: ${msgs.length} msgs (${imageMsgs} images), ${(res.body.length / 1024).toFixed(1)}KB, ${elapsed}ms`);
     } catch (e) { /* ignore */ }
@@ -180,8 +180,8 @@ export function paginateMessages(data) {
 
     try {
       const body = JSON.parse(res.body);
-      cursor = body.data?.next_cursor;
-      const hasMore = body.data?.has_more;
+      cursor = body.pagination?.next_cursor;
+      const hasMore = body.pagination?.has_more;
 
       if (__VU === 1) {
         console.log(`  📜 Page ${pageCount + 1}: cursor=${cursor?.substring(0, 20)}..., has_more=${hasMore}, ${elapsed}ms`);
