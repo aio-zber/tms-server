@@ -2,6 +2,7 @@
 Message repository for database operations.
 Handles CRUD and query operations for messages, statuses, and reactions.
 """
+import logging
 from datetime import datetime
 from typing import List, Optional, Tuple
 # UUID import removed - using str for ID types
@@ -9,11 +10,14 @@ from typing import List, Optional, Tuple
 from app.utils.datetime_utils import utc_now
 
 from sqlalchemy import select, and_, or_, func, desc
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.message import Message, MessageStatus, MessageReaction, MessageStatusType
 from app.repositories.base import BaseRepository
+
+logger = logging.getLogger(__name__)
 
 
 class MessageRepository(BaseRepository[Message]):
@@ -129,15 +133,15 @@ class MessageRepository(BaseRepository[Message]):
                 try:
                     cursor_seq = int(cursor.split(":")[1])
                     query = query.where(Message.sequence_number < cursor_seq)
-                    print(f"[MESSAGE_REPO] Using sequence cursor: {cursor_seq}")
+                    logger.debug("[MESSAGE_REPO] Using sequence cursor: %s", cursor_seq)
                 except (ValueError, IndexError):
-                    print(f"[MESSAGE_REPO] ⚠️ Invalid sequence cursor format: {cursor}")
+                    logger.debug("[MESSAGE_REPO] Invalid sequence cursor format: %s", cursor)
             else:
                 # LEGACY: UUID-based cursor (for backward compatibility during migration)
                 cursor_msg = await self.get(cursor)
                 if cursor_msg and cursor_msg.sequence_number:
                     query = query.where(Message.sequence_number < cursor_msg.sequence_number)
-                    print(f"[MESSAGE_REPO] Using legacy UUID cursor, converted to seq: {cursor_msg.sequence_number}")
+                    logger.debug("[MESSAGE_REPO] Using legacy UUID cursor, converted to seq: %s", cursor_msg.sequence_number)
                 elif cursor_msg:
                     # Fallback for messages without sequence numbers (shouldn't happen after migration)
                     query = query.where(
@@ -149,7 +153,7 @@ class MessageRepository(BaseRepository[Message]):
                             )
                         )
                     )
-                    print(f"[MESSAGE_REPO] ⚠️ Using timestamp fallback for message without sequence")
+                    logger.debug("[MESSAGE_REPO] Using timestamp fallback for message without sequence")
 
         # Order by sequence number descending (newest first)
         # Secondary sort by created_at for robustness (handles edge cases)
@@ -158,37 +162,9 @@ class MessageRepository(BaseRepository[Message]):
             desc(Message.created_at)
         ).limit(limit + 1)
 
-        print(f"[MESSAGE_REPO] 🔍 Fetching messages for conversation: {conversation_id}")
-        print(f"[MESSAGE_REPO] 🔍 Limit: {limit}, Cursor: {cursor}, Include deleted: {include_deleted}")
-        
-        # DEBUG: Get ALL messages to see total count and timestamps
-        debug_query = (
-            select(Message)
-            .where(Message.conversation_id == conversation_id)
-        )
-        if not include_deleted:
-            debug_query = debug_query.where(Message.deleted_at.is_(None))
-        debug_query = debug_query.order_by(desc(Message.created_at), desc(Message.id))
-        
-        debug_result = await self.db.execute(debug_query)
-        all_messages = list(debug_result.scalars().all())
-        print(f"[MESSAGE_REPO] 📊 TOTAL messages in DB (non-deleted): {len(all_messages)}")
-        if all_messages:
-            print(f"[MESSAGE_REPO] 📊 Newest message: id={all_messages[0].id}, content='{all_messages[0].content[:30] if all_messages[0].content else 'NULL'}...', created_at={all_messages[0].created_at}")
-            print(f"[MESSAGE_REPO] 📊 Oldest message: id={all_messages[-1].id}, content='{all_messages[-1].content[:30] if all_messages[-1].content else 'NULL'}...', created_at={all_messages[-1].created_at}")
-            # Show all message IDs and timestamps for debugging
-            print(f"[MESSAGE_REPO] 📊 All message timestamps:")
-            for idx, msg in enumerate(all_messages):
-                print(f"  [{idx}] id={msg.id}, created_at={msg.created_at}, deleted_at={msg.deleted_at}, content='{msg.content[:20] if msg.content else 'NULL'}...'")
-        
         result = await self.db.execute(query)
         messages = list(result.scalars().all())
 
-        print(f"[MESSAGE_REPO] 📊 Query returned {len(messages)} messages (with limit={limit+1})")
-        if messages:
-            print(f"[MESSAGE_REPO] 📊 First returned: id={messages[0].id}, content='{messages[0].content[:30] if messages[0].content else 'NULL'}...', created_at={messages[0].created_at}")
-            print(f"[MESSAGE_REPO] 📊 Last returned: id={messages[-1].id}, content='{messages[-1].content[:30] if messages[-1].content else 'NULL'}...', created_at={messages[-1].created_at}")
-        
         # Check if there are more messages
         has_more = len(messages) > limit
         if has_more:
@@ -197,7 +173,6 @@ class MessageRepository(BaseRepository[Message]):
         # Get next cursor (sequence-based format)
         next_cursor = f"seq:{messages[-1].sequence_number}" if messages and has_more else None
 
-        print(f"[MESSAGE_REPO] ✅ Returning {len(messages)} messages, has_more={has_more}, next_cursor={next_cursor}")
         return messages, next_cursor, has_more
 
     async def search_messages(
@@ -343,23 +318,11 @@ class MessageRepository(BaseRepository[Message]):
             desc(Message.created_at)
         ).limit(limit)
 
-        print(f"[MESSAGE_REPO] 🔍 Full-text search query: '{sanitized_query}'")
-        print(f"[MESSAGE_REPO] 📊 Filters: conversation_id={conversation_id}, sender_id={sender_id}")
-
         result = await self.db.execute(search_query)
 
         # Extract messages from tuples (query returns (Message, ts_rank, trigram, combined))
         rows = result.all()
         messages = [row[0] for row in rows]
-
-        # Log search results for debugging
-        if messages:
-            print(f"[MESSAGE_REPO] ✅ Found {len(messages)} messages")
-            for i, row in enumerate(rows[:3]):  # Show top 3 results
-                msg, ts_r, tg_sim, relevance = row
-                print(f"  [{i+1}] relevance={relevance:.3f} (ts={ts_r:.3f}, tg={tg_sim:.3f}): '{msg.content[:50]}...'")
-        else:
-            print(f"[MESSAGE_REPO] ⚠️ No messages found for query: '{sanitized_query}'")
 
         return messages
 
@@ -485,10 +448,7 @@ class MessageRepository(BaseRepository[Message]):
 
         cached_count = await get_cached_unread_count(user_id_str, conversation_id_str)
         if cached_count is not None:
-            print(f"[MESSAGE_REPO] ⚡ Cache HIT for unread count: user={user_id_str[:8]}, conv={conversation_id_str[:8]}, count={cached_count}")
             return cached_count
-
-        print(f"[MESSAGE_REPO] 💾 Cache MISS for unread count, querying DB...")
 
         # Cache miss - query database
         # Optimized query using partial index on message_status
@@ -523,7 +483,6 @@ class MessageRepository(BaseRepository[Message]):
 
         # Cache the result for 60 seconds
         await cache_unread_count(user_id_str, conversation_id_str, count)
-        print(f"[MESSAGE_REPO] ✅ Cached unread count: user={user_id_str[:8]}, conv={conversation_id_str[:8]}, count={count}")
 
         return count
 
@@ -624,11 +583,24 @@ class MessageStatusRepository(BaseRepository[MessageStatus]):
         Returns:
             Number of statuses updated
         """
-        count = 0
-        for message_id in message_ids:
-            await self.upsert_status(message_id, user_id, MessageStatusType.DELIVERED)
-            count += 1
-        return count
+        if not message_ids:
+            return 0
+        now = utc_now()
+        stmt = pg_insert(MessageStatus).values([
+            {
+                "message_id": mid,
+                "user_id": user_id,
+                "status": MessageStatusType.DELIVERED,
+                "timestamp": now,
+            }
+            for mid in message_ids
+        ]).on_conflict_do_update(
+            index_elements=["message_id", "user_id"],
+            set_={"status": MessageStatusType.DELIVERED, "timestamp": now},
+        )
+        result = await self.db.execute(stmt)
+        await self.db.flush()
+        return result.rowcount
 
     async def mark_messages_as_read(
         self,
