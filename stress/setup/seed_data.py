@@ -206,7 +206,7 @@ async def seed(session: AsyncSession):
         })
         await session.execute(text("""
             INSERT INTO messages (id, conversation_id, sender_id, content, type, is_edited, metadata_json, sequence_number, created_at, updated_at)
-            VALUES (:id, :conv_id, :sender, :content, 'IMAGE', false, :meta::jsonb, :seq, :now, :now)
+            VALUES (:id, :conv_id, :sender, :content, 'IMAGE', false, CAST(:meta AS jsonb), :seq, :now, :now)
             ON CONFLICT DO NOTHING
         """), {
             "id": mid, "conv_id": group_conv_id, "sender": user_ids[i % N_USERS],
@@ -231,7 +231,7 @@ async def seed(session: AsyncSession):
         })
         await session.execute(text("""
             INSERT INTO messages (id, conversation_id, sender_id, content, type, is_edited, metadata_json, sequence_number, created_at, updated_at)
-            VALUES (:id, :conv_id, :sender, :content, 'FILE', false, :meta::jsonb, :seq, :now, :now)
+            VALUES (:id, :conv_id, :sender, :content, 'FILE', false, CAST(:meta AS jsonb), :seq, :now, :now)
             ON CONFLICT DO NOTHING
         """), {
             "id": mid, "conv_id": group_conv_id, "sender": user_ids[i % N_USERS],
