@@ -110,11 +110,12 @@ export function openConversation(data) {
 
   const ok = check(res, {
     'conversation opened (200)': (r) => r.status === 200,
-    'has image messages': (r) => {
+    'has media messages': (r) => {
       try {
         const body = JSON.parse(r.body);
         const msgs = Array.isArray(body.data) ? body.data : [];
-        return msgs.some(m => m.type === 'IMAGE');
+        // First page shows most-recent messages (FILE seeded last, IMAGE before that)
+        return msgs.some(m => m.type === 'IMAGE' || m.type === 'FILE');
       } catch (e) {
         return false;
       }
