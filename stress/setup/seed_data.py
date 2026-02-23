@@ -64,7 +64,8 @@ TEST_FILE_URL = "https://example.com/stress-test-file.pdf"
 # ─── Helpers ───────────────────────────────────────────────────────────────────
 
 def now_utc() -> datetime:
-    return datetime.now(timezone.utc)
+    # Return naive UTC datetime — compatible with both TIMESTAMPTZ and TIMESTAMP columns
+    return datetime.utcnow()
 
 
 def new_id() -> str:
