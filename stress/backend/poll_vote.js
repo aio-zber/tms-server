@@ -123,7 +123,7 @@ export function voteOnPoll(data) {
   const token = tokens[vuIndex];
   const optionId = data.options[Math.floor(Math.random() * data.options.length)];
 
-  const payload = JSON.stringify({ option_id: optionId });
+  const payload = JSON.stringify({ option_ids: [optionId] });
   const params = {
     headers: {
       'Content-Type': 'application/json',
