@@ -1,0 +1,3 @@
+# Generated test data — do not commit (contains tokens/credentials)
+*.json
+*.txt

@@ -1,0 +1,13 @@
+{
+  "name": "tms-websocket-stress",
+  "version": "1.0.0",
+  "description": "Socket.IO WebSocket stress test for TMS Chat",
+  "main": "connections.js",
+  "scripts": {
+    "test": "node connections.js",
+    "test:verbose": "VERBOSE=1 node connections.js"
+  },
+  "dependencies": {
+    "socket.io-client": "^4.7.0"
+  }
+}
