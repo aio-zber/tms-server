@@ -20,7 +20,7 @@ import { check, sleep } from 'k6';
 import { Rate, Trend, Counter } from 'k6/metrics';
 import { SharedArray } from 'k6/data';
 
-const BASE_URL = __ENV.BASE_URL || 'http://localhost:8000';
+const BASE_URL = __ENV.BASE_URL || 'https://tms-chat-staging.hotelsogo-ai.com';
 const CONV_ID = __ENV.CONV_ID || (() => {
   try {
     return JSON.parse(open('../data/conversation_ids.json')).group_conversation_id;

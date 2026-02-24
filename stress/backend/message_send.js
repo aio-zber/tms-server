@@ -11,7 +11,7 @@
  *   → 10 parallel advisory locks → ~10x throughput vs. Scenario 1
  *
  * Run:
- *   k6 run -e BASE_URL=http://localhost:8000 stress/backend/message_send.js
+ *   k6 run -e BASE_URL=https://tms-chat-staging.hotelsogo-ai.com stress/backend/message_send.js
  */
 
 import http from 'k6/http';
@@ -19,7 +19,7 @@ import { check, sleep } from 'k6';
 import { Rate, Trend, Counter } from 'k6/metrics';
 import { SharedArray } from 'k6/data';
 
-const BASE_URL = __ENV.BASE_URL || 'http://localhost:8000';
+const BASE_URL = __ENV.BASE_URL || 'https://tms-chat-staging.hotelsogo-ai.com';
 
 const tokens = new SharedArray('tokens', function () {
   return JSON.parse(open('../data/tokens_array.json'));
@@ -177,4 +177,10 @@ export function teardown() {
   console.log('   single_conv_send_ms vs distributed_send_ms:');
   console.log('   If distributed is ~10x faster, advisory lock design is correct.');
   console.log('   If similar, check that extra conversations have proper members.');
+  console.log('');
+  console.log('   ── Throughput approximation ──');
+  console.log('   messages_sent_total (single conv)   / 60s = single-conv msgs/sec');
+  console.log('   messages_sent_total (distributed)   / 60s = distributed msgs/sec');
+  console.log('   These show advisory-lock throughput, NOT the server ceiling.');
+  console.log('   For the true ceiling, run: message_throughput.js');
 }

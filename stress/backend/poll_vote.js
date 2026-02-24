@@ -22,7 +22,7 @@ import { SharedArray } from 'k6/data';
 
 // ─── Configuration ─────────────────────────────────────────────────────────────
 
-const BASE_URL = __ENV.BASE_URL || 'http://localhost:8000';
+const BASE_URL = __ENV.BASE_URL || 'https://tms-chat-staging.hotelsogo-ai.com';
 const POLL_ID = __ENV.POLL_ID || (() => {
   // Fallback: read from data file via env
   console.warn('⚠️  POLL_ID not set. Pass -e POLL_ID=<uuid>');
