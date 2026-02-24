@@ -299,6 +299,12 @@ class ConversationService:
 
         await self.db.commit()
 
+        # Invalidate membership cache for all new members so their next WS
+        # connect fetches the updated conversation list from the DB.
+        from app.core.cache import invalidate_user_conversations_cache
+        for uid in [creator_id] + list(member_ids):
+            await invalidate_user_conversations_cache(str(uid))
+
         # Reload with relations and enrich
         conversation = await self.conversation_repo.get_with_relations(conversation.id)
         return await self._enrich_conversation_with_user_data(conversation, creator_id)

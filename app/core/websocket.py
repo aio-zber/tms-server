@@ -159,18 +159,27 @@ class ConnectionManager:
                     await add_online_user(str(user.id))
 
                     # Telegram/Messenger pattern: Auto-join ALL conversation rooms on connect.
-                    # One query fetches all conversation IDs, then joins rooms in-memory.
-                    # This replaces per-room client-side join_conversation calls that each
-                    # triggered a DB query and caused connection pool exhaustion.
+                    # Cache-first: check Redis before hitting the DB. At 10k concurrent
+                    # connects this reduces DB queries from N to ~cache-miss-rate × N.
+                    # Cache is invalidated on membership changes (join/leave/add/remove).
                     try:
                         from app.models.conversation import ConversationMember
-
-                        conv_result = await db.execute(
-                            select(ConversationMember.conversation_id).where(
-                                ConversationMember.user_id == user.id
-                            )
+                        from app.core.cache import (
+                            get_cached_user_conversations,
+                            cache_user_conversations,
                         )
-                        conversation_ids = [row[0] for row in conv_result.fetchall()]
+
+                        cached_ids = await get_cached_user_conversations(str(user.id))
+                        if cached_ids is not None:
+                            conversation_ids = cached_ids
+                        else:
+                            conv_result = await db.execute(
+                                select(ConversationMember.conversation_id).where(
+                                    ConversationMember.user_id == user.id
+                                )
+                            )
+                            conversation_ids = [str(row[0]) for row in conv_result.fetchall()]
+                            await cache_user_conversations(str(user.id), conversation_ids)
 
                         for conv_id in conversation_ids:
                             room_name = f"conversation:{conv_id}"
@@ -647,6 +656,12 @@ class ConnectionManager:
             'timestamp': str(asyncio.get_event_loop().time())
         }, room=room)
 
+        # Invalidate membership cache for each newly added user so their next
+        # reconnect fetches the updated conversation list from the DB.
+        from app.core.cache import invalidate_user_conversations_cache
+        for member in added_members:
+            await invalidate_user_conversations_cache(str(member['user_id']))
+
         logger.info(f"[broadcast_member_added] Member addition broadcast completed")
 
     async def broadcast_member_removed(
@@ -676,6 +691,10 @@ class ConnectionManager:
             'timestamp': str(asyncio.get_event_loop().time())
         }, room=room)
 
+        # Invalidate membership cache for the removed user
+        from app.core.cache import invalidate_user_conversations_cache
+        await invalidate_user_conversations_cache(str(removed_user_id))
+
         logger.info(f"[broadcast_member_removed] Member removal broadcast completed")
 
     async def broadcast_member_left(
@@ -704,6 +723,10 @@ class ConnectionManager:
             'user_name': user_name,
             'timestamp': str(asyncio.get_event_loop().time())
         }, room=room)
+
+        # Invalidate membership cache for the user who left
+        from app.core.cache import invalidate_user_conversations_cache
+        await invalidate_user_conversations_cache(str(user_id))
 
         logger.info(f"[broadcast_member_left] Member left broadcast completed")
 

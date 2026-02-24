@@ -2,6 +2,7 @@
 Message service containing business logic for messaging operations.
 Handles message CRUD, reactions, status updates, and integrations.
 """
+import asyncio
 import logging
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
@@ -1097,13 +1098,13 @@ class MessageService:
             old_emoji = existing_reaction.emoji
             # Remove the old reaction
             await self.reaction_repo.remove_reaction(message_id, user_id, old_emoji)
-            # Broadcast removal via WebSocket
-            await self.ws_manager.broadcast_reaction_removed(
+            # Broadcast removal via WebSocket (fire-and-forget — don't block HTTP response)
+            asyncio.create_task(self.ws_manager.broadcast_reaction_removed(
                 message.conversation_id,
                 message_id,
                 user_id,
                 old_emoji
-            )
+            ))
 
         # Add the new reaction
         reaction = await self.reaction_repo.add_reaction(message_id, user_id, emoji)
@@ -1126,12 +1127,12 @@ class MessageService:
             "created_at": to_iso_utc(reaction.created_at)
         }
 
-        # Broadcast reaction added via WebSocket
-        await self.ws_manager.broadcast_reaction_added(
+        # Broadcast reaction added via WebSocket (fire-and-forget — don't block HTTP response)
+        asyncio.create_task(self.ws_manager.broadcast_reaction_added(
             message.conversation_id,
             message_id,
             reaction_data
-        )
+        ))
 
         return reaction_data
 
@@ -1173,13 +1174,13 @@ class MessageService:
 
         await self.db.commit()
 
-        # Broadcast reaction removed via WebSocket
-        await self.ws_manager.broadcast_reaction_removed(
+        # Broadcast reaction removed via WebSocket (fire-and-forget — don't block HTTP response)
+        asyncio.create_task(self.ws_manager.broadcast_reaction_removed(
             message.conversation_id,
             message_id,
             user_id,
             emoji
-        )
+        ))
 
         return {
             "success": True,

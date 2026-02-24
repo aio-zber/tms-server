@@ -326,3 +326,29 @@ async def invalidate_total_unread_count_cache(user_id: str) -> bool:
     """
     key = f"unread:total:{user_id}"
     return await cache.delete(key)
+
+
+# Conversation membership caching (for WebSocket connect performance)
+# Caches the list of conversation IDs a user belongs to so the connect
+# handler doesn't hit the DB on every reconnect. TTL=5min is safe because
+# membership changes invalidate the key immediately via the helpers below.
+
+_MEMBERSHIP_TTL = 300  # 5 minutes
+
+
+async def cache_user_conversations(user_id: str, conversation_ids: list) -> bool:
+    """Cache the list of conversation IDs for a user. Called on WS connect (DB miss)."""
+    key = f"user_convs:{user_id}"
+    return await cache.set(key, conversation_ids, ttl=_MEMBERSHIP_TTL)
+
+
+async def get_cached_user_conversations(user_id: str) -> Optional[list]:
+    """Get cached conversation IDs for a user. Returns None on cache miss."""
+    key = f"user_convs:{user_id}"
+    return await cache.get(key)
+
+
+async def invalidate_user_conversations_cache(user_id: str) -> bool:
+    """Invalidate membership cache for a user. Called on join/leave/add/remove."""
+    key = f"user_convs:{user_id}"
+    return await cache.delete(key)

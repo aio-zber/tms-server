@@ -103,7 +103,8 @@ Thumbs.db
 
 # Documentation (may contain credentials/private info)
 docs/
-# stress/ — temporarily tracked for staging stress test run
+# Stress test generated data files (contain tokens, UUIDs — not for version control)
+stress/data/
 
 # Deployment (contains SSH keys, credentials, and infrastructure configs)
 deployment/
