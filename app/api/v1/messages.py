@@ -38,7 +38,30 @@ from app.services.message_service import MessageService
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-limiter = Limiter(key_func=get_remote_address)
+
+
+def _get_rate_limit_key(request: Request) -> str:
+    """
+    Rate limit by authenticated user ID when available, fall back to IP.
+
+    Using user ID prevents a shared IP (e.g. corporate NAT, ECS stress test)
+    from counting all users against a single bucket. Each user gets their own
+    independent limit, which is the correct Messenger/Telegram behaviour.
+    """
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        try:
+            from app.core.security import decode_nextauth_token
+            payload = decode_nextauth_token(auth_header[7:])
+            user_id = payload.get("user_id") or payload.get("id")
+            if user_id:
+                return str(user_id)
+        except Exception:
+            pass
+    return get_remote_address(request)
+
+
+limiter = Limiter(key_func=_get_rate_limit_key)
 
 
 # ---------------------------------------------------------------------------
