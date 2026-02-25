@@ -14,7 +14,6 @@ from app.repositories.conversation_repo import (
     ConversationRepository,
     ConversationMemberRepository
 )
-from app.core.tms_client import tms_client, TMSAPIException
 
 
 class ConversationService:
@@ -59,10 +58,9 @@ class ConversationService:
             "unread_count": 0
         }
 
-        # Fetch creator data from TMS
+        # Fetch creator data from local DB (no TMS API call needed)
         if conversation.created_by:
             try:
-                # Get local user first
                 from app.models.user import User
                 from sqlalchemy import select
 
@@ -72,22 +70,14 @@ class ConversationService:
                 creator = result.scalar_one_or_none()
 
                 if creator:
-                    try:
-                        creator_data = await tms_client.get_user(
-                            creator.tms_user_id,
-                            use_cache=True
-                        )
-                        conversation_dict["creator"] = creator_data
-                    except (TMSAPIException, Exception):
-                        # Fallback to local DB data
-                        conversation_dict["creator"] = {
-                            "id": str(creator.id),
-                            "tms_user_id": creator.tms_user_id,
-                            "email": creator.email or "",
-                            "first_name": creator.first_name or "",
-                            "last_name": creator.last_name or "",
-                            "image": creator.image or "",
-                        }
+                    conversation_dict["creator"] = {
+                        "id": str(creator.id),
+                        "tms_user_id": creator.tms_user_id,
+                        "email": creator.email or "",
+                        "first_name": creator.first_name or "",
+                        "last_name": creator.last_name or "",
+                        "image": creator.image or "",
+                    }
             except Exception:
                 conversation_dict["creator"] = {
                     "id": str(conversation.created_by)
@@ -105,10 +95,9 @@ class ConversationService:
                 "mute_until": member.mute_until
             }
 
-            # Fetch user data from TMS, with local DB fallback
+            # Use local DB data directly (synced from TMS; no per-member API call)
             if member.user:
-                # Build local DB fallback data (always available, no API call needed)
-                local_user_data = {
+                member_dict["user"] = {
                     "id": str(member.user_id),
                     "tms_user_id": member.user.tms_user_id,
                     "email": member.user.email or "",
@@ -122,17 +111,6 @@ class ConversationService:
                     "division": member.user.division or "",
                     "department": member.user.department or "",
                 }
-
-                try:
-                    # Use API Key authentication for server-to-server calls (PREFERRED METHOD)
-                    user_data = await tms_client.get_user_by_id_with_api_key(
-                        member.user.tms_user_id,
-                        use_cache=True
-                    )
-                    member_dict["user"] = user_data
-                except (TMSAPIException, Exception):
-                    # Fallback to local DB data (has name, email, image from last sync)
-                    member_dict["user"] = local_user_data
 
             enriched_members.append(member_dict)
 
@@ -175,12 +153,9 @@ class ConversationService:
                 other_user_image = other_user_data.get("image")
                 if other_user_image:
                     conversation_dict["avatar_url"] = other_user_image
-                    print(f"[CONVERSATION_SERVICE] 💬 DM avatar_url set to other user's image")
 
-                print(f"[CONVERSATION_SERVICE] 💬 DM display_name: '{display_name}'")
             else:
                 conversation_dict["display_name"] = "Direct Message"
-                print(f"[CONVERSATION_SERVICE] ⚠️ DM has no other user, using fallback")
         else:
             # For groups, use the group name
             conversation_dict["display_name"] = conversation.name or "Group Chat"
