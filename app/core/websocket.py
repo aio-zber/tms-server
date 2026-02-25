@@ -461,7 +461,8 @@ class ConnectionManager:
             'message_id': str(message_data['id']),
             'content': message_data['content'],
             'is_edited': message_data.get('is_edited', True),
-            'updated_at': message_data.get('updated_at')
+            'updated_at': message_data.get('updated_at'),
+            'deleted_at': message_data.get('deleted_at'),  # Required for delete-for-everyone
         }
 
         await self.sio.emit('message_edited', standardized_payload, room=room)
