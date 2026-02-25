@@ -165,6 +165,15 @@ class MessageRepository(BaseRepository[Message]):
         result = await self.db.execute(query)
         messages = list(result.scalars().all())
 
+        # Cap reactions per message to avoid oversized responses.
+        # The UI shows max 5 reactor names; 100 is sufficient for all real usage.
+        _REACTION_CAP = 100
+        for msg in messages:
+            if len(msg.reactions) > _REACTION_CAP:
+                msg.reactions = msg.reactions[:_REACTION_CAP]
+            if msg.reply_to and len(msg.reply_to.reactions) > _REACTION_CAP:
+                msg.reply_to.reactions = msg.reply_to.reactions[:_REACTION_CAP]
+
         # Check if there are more messages
         has_more = len(messages) > limit
         if has_more:
