@@ -198,3 +198,9 @@ class ConversationKeyBackupResponse(BaseModel):
     conversation_id: str
     encrypted_key: str
     nonce: str
+
+
+class ConversationKeyBackupListResponse(BaseModel):
+    """Response containing all encrypted conversation key backups for a user."""
+
+    keys: list[ConversationKeyBackupResponse]
