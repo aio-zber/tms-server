@@ -7,6 +7,7 @@ from typing import Optional, List, TYPE_CHECKING
 # UUID import removed - using str for ID types
 
 from pydantic import BaseModel, Field, field_validator, ConfigDict
+from app.schemas.message import MessageResponse
 
 
 def to_camel(string: str) -> str:
@@ -240,7 +241,7 @@ class CreatePollResponse(BaseModel):
     """Response when creating a new poll."""
 
     poll: PollResponse
-    message: "MessageResponse"  # Forward reference to avoid circular import
+    message: MessageResponse
 
     model_config = ConfigDict(
         from_attributes=True,

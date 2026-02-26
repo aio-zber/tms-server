@@ -78,6 +78,45 @@ async def get_current_user_endpoint(
         )
 
 
+@router.get("/search", response_model=list[UserResponse])
+async def search_users_endpoint(
+    q: str = Query("", min_length=0, max_length=100, description="Search query"),
+    limit: int = Query(20, ge=1, le=100, description="Maximum results"),
+    division: Optional[str] = Query(None),
+    department: Optional[str] = Query(None),
+    role: Optional[str] = Query(None),
+    is_active: Optional[bool] = Query(None),
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Search users — alias for GET /api/v1/users/?q=... for discoverability.
+    Must be defined before /{user_id} to avoid 'search' being matched as a user ID.
+    """
+    filters = {}
+    if division:
+        filters["division"] = division
+    if department:
+        filters["department"] = department
+    if role:
+        filters["role"] = role
+    if is_active is not None:
+        filters["is_active"] = is_active
+
+    try:
+        user_service = UserService(db)
+        return await user_service.search_users(
+            query=q,
+            filters=filters if filters else None,
+            limit=limit
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Search failed: {str(e)}"
+        )
+
+
 @router.get("/{user_id}", response_model=UserResponse)
 async def get_user_by_id(
     user_id: str,
