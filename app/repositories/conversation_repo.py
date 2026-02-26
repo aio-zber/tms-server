@@ -261,6 +261,62 @@ class ConversationRepository(BaseRepository[Conversation]):
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
 
+    async def get_last_messages_batch(
+        self, conversation_ids: List[str]
+    ) -> dict[str, Message]:
+        """
+        Get the last non-deleted message for each conversation in one query.
+
+        Messenger pattern: subquery selects the max created_at per conversation,
+        then joins back to get the full message row. Single DB round-trip.
+
+        Args:
+            conversation_ids: List of conversation UUIDs
+
+        Returns:
+            Dict mapping conversation_id → last Message (omits convs with no messages)
+        """
+        if not conversation_ids:
+            return {}
+
+        # Subquery: max created_at per conversation
+        latest_subq = (
+            select(
+                Message.conversation_id,
+                func.max(Message.created_at).label("max_created_at"),
+            )
+            .where(
+                and_(
+                    Message.conversation_id.in_(conversation_ids),
+                    Message.deleted_at.is_(None),
+                )
+            )
+            .group_by(Message.conversation_id)
+            .subquery()
+        )
+
+        # Join back to get full message rows matching the max timestamp
+        query = (
+            select(Message)
+            .join(
+                latest_subq,
+                and_(
+                    Message.conversation_id == latest_subq.c.conversation_id,
+                    Message.created_at == latest_subq.c.max_created_at,
+                    Message.deleted_at.is_(None),
+                ),
+            )
+        )
+
+        result = await self.db.execute(query)
+        messages = result.scalars().all()
+        # If two messages share the exact same created_at (rare), keep one
+        seen: dict[str, Message] = {}
+        for msg in messages:
+            if msg.conversation_id not in seen:
+                seen[msg.conversation_id] = msg
+        return seen
+
     async def search_conversations(
         self,
         user_id: str,
@@ -663,6 +719,56 @@ class ConversationMemberRepository:
         await self.db.refresh(member)
         return member
 
+    async def get_unread_counts_batch(
+        self, user_id: str, members_by_conv: dict[str, "ConversationMember"]
+    ) -> dict[str, int]:
+        """
+        Get unread message counts for multiple conversations in one query.
+
+        Messenger pattern: fetch (conversation_id, created_at) for all candidate
+        messages from others in a single query, then apply each conversation's
+        last_read_at cutoff in Python — one DB round-trip, no dynamic SQL.
+
+        Args:
+            user_id: Current user UUID
+            members_by_conv: Dict mapping conversation_id → ConversationMember
+                             (already loaded via selectinload on conversation.members)
+
+        Returns:
+            Dict mapping conversation_id → unread count (0 if no unread)
+        """
+        if not members_by_conv:
+            return {}
+
+        conv_ids = list(members_by_conv.keys())
+
+        # One query: all non-deleted messages from other users in these conversations
+        query = (
+            select(Message.conversation_id, Message.created_at)
+            .where(
+                and_(
+                    Message.conversation_id.in_(conv_ids),
+                    Message.sender_id != user_id,
+                    Message.deleted_at.is_(None),
+                )
+            )
+        )
+
+        result = await self.db.execute(query)
+        rows = result.all()
+
+        # Apply each conversation's last_read_at cutoff in Python
+        counts: dict[str, int] = {conv_id: 0 for conv_id in conv_ids}
+        for conv_id, created_at in rows:
+            member = members_by_conv.get(conv_id)
+            if member is None:
+                continue
+            last_read_at = member.last_read_at
+            if last_read_at is None or created_at > last_read_at:
+                counts[conv_id] += 1
+
+        return counts
+
     async def get_unread_count(
         self, conversation_id: str, user_id: str
     ) -> int:
@@ -678,30 +784,18 @@ class ConversationMemberRepository:
         """
         member = await self.get_member(conversation_id, user_id)
         if not member:
-            print(f"[UNREAD_COUNT] ⚠️ User {user_id} is not a member of conversation {conversation_id}")
             return 0
 
-        print(f"[UNREAD_COUNT] 🔍 Calculating unread count for user {user_id} in conversation {conversation_id}")
-        print(f"[UNREAD_COUNT] 📅 Member last_read_at: {member.last_read_at}")
-
-        # Count messages after last_read_at
         query = select(func.count()).select_from(Message).where(
             and_(
                 Message.conversation_id == conversation_id,
-                Message.sender_id != user_id,  # Exclude own messages
+                Message.sender_id != user_id,
                 Message.deleted_at.is_(None)
             )
         )
 
         if member.last_read_at:
             query = query.where(Message.created_at > member.last_read_at)
-            print(f"[UNREAD_COUNT] 🔍 Counting messages created after {member.last_read_at}")
-        else:
-            print(f"[UNREAD_COUNT] ⚠️ No last_read_at timestamp - counting ALL messages")
 
         result = await self.db.execute(query)
-        count = result.scalar() or 0
-
-        print(f"[UNREAD_COUNT] ✅ Unread count: {count}")
-        print(f"[UNREAD_COUNT] 📊 Final result: {count} unread messages (last_read_at={member.last_read_at})")
-        return count
+        return result.scalar() or 0

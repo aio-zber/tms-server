@@ -2,6 +2,7 @@
 Conversation service containing business logic for conversation operations.
 Handles conversation CRUD, member management, and integrations.
 """
+import logging
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
 # UUID import removed - using str for ID types
@@ -14,6 +15,8 @@ from app.repositories.conversation_repo import (
     ConversationRepository,
     ConversationMemberRepository
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ConversationService:
@@ -30,22 +33,27 @@ class ConversationService:
         self.conversation_repo = ConversationRepository(db)
         self.member_repo = ConversationMemberRepository(db)
 
-    async def _enrich_conversation_with_user_data(
+    def _build_conversation_dict(
         self,
         conversation: Conversation,
-        user_id: str
+        user_id: str,
+        unread_count: int = 0,
+        last_message: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """
-        Enrich conversation with TMS user data and member info.
+        Build an enriched conversation dict from already-loaded ORM relations.
+
+        All data comes from eagerly loaded relations (selectinload) — no extra
+        DB queries are issued here. unread_count and last_message are supplied
+        by the caller from batch lookups.
 
         Args:
-            conversation: Conversation instance
+            conversation: Conversation with .members, .creator pre-loaded
             user_id: Current user UUID
-
-        Returns:
-            Conversation dict with enriched user data
+            unread_count: Pre-computed unread count for this user
+            last_message: Pre-fetched last Message ORM object or None
         """
-        conversation_dict = {
+        conversation_dict: Dict[str, Any] = {
             "id": conversation.id,
             "type": conversation.type,
             "name": conversation.name,
@@ -55,131 +63,104 @@ class ConversationService:
             "updated_at": conversation.updated_at,
             "members": [],
             "member_count": 0,
-            "unread_count": 0
+            "unread_count": unread_count,
         }
 
-        # Fetch creator data from local DB (no TMS API call needed)
-        if conversation.created_by:
-            try:
-                from app.models.user import User
-                from sqlalchemy import select
+        # Creator — use already-loaded relation, no extra query
+        if conversation.creator:
+            c = conversation.creator
+            conversation_dict["creator"] = {
+                "id": str(c.id),
+                "tms_user_id": c.tms_user_id,
+                "email": c.email or "",
+                "first_name": c.first_name or "",
+                "last_name": c.last_name or "",
+                "image": c.image or "",
+            }
+        elif conversation.created_by:
+            conversation_dict["creator"] = {"id": str(conversation.created_by)}
 
-                result = await self.db.execute(
-                    select(User).where(User.id == conversation.created_by)
-                )
-                creator = result.scalar_one_or_none()
-
-                if creator:
-                    conversation_dict["creator"] = {
-                        "id": str(creator.id),
-                        "tms_user_id": creator.tms_user_id,
-                        "email": creator.email or "",
-                        "first_name": creator.first_name or "",
-                        "last_name": creator.last_name or "",
-                        "image": creator.image or "",
-                    }
-            except Exception:
-                conversation_dict["creator"] = {
-                    "id": str(conversation.created_by)
-                }
-
-        # Enrich members
+        # Members — all loaded via selectinload, no per-member queries
         enriched_members = []
         for member in conversation.members:
-            member_dict = {
+            member_dict: Dict[str, Any] = {
                 "user_id": member.user_id,
                 "role": member.role,
                 "joined_at": member.joined_at,
                 "last_read_at": member.last_read_at,
                 "is_muted": member.is_muted,
-                "mute_until": member.mute_until
+                "mute_until": member.mute_until,
             }
-
-            # Use local DB data directly (synced from TMS; no per-member API call)
             if member.user:
+                u = member.user
                 member_dict["user"] = {
                     "id": str(member.user_id),
-                    "tms_user_id": member.user.tms_user_id,
-                    "email": member.user.email or "",
-                    "first_name": member.user.first_name or "",
-                    "last_name": member.user.last_name or "",
-                    "middle_name": member.user.middle_name or "",
-                    "username": member.user.username or "",
-                    "image": member.user.image or "",
-                    "role": member.user.role or "",
-                    "position_title": member.user.position_title or "",
-                    "division": member.user.division or "",
-                    "department": member.user.department or "",
+                    "tms_user_id": u.tms_user_id,
+                    "email": u.email or "",
+                    "first_name": u.first_name or "",
+                    "last_name": u.last_name or "",
+                    "middle_name": u.middle_name or "",
+                    "username": u.username or "",
+                    "image": u.image or "",
+                    "role": u.role or "",
+                    "position_title": u.position_title or "",
+                    "division": u.division or "",
+                    "department": u.department or "",
                 }
-
             enriched_members.append(member_dict)
 
         conversation_dict["members"] = enriched_members
         conversation_dict["member_count"] = len(enriched_members)
 
-        # For group conversations: refresh avatar_url from avatar_oss_key if available
-        # (OSS signed URLs expire after 7 days; re-signing is a local HMAC — no OSS network call)
+        # Group avatar refresh — local HMAC, no network call
         if conversation.type != ConversationType.DM and conversation.avatar_oss_key:
             try:
                 from app.services.oss_service import OSSService
-                oss = OSSService()
-                conversation_dict["avatar_url"] = oss.generate_signed_url(
+                conversation_dict["avatar_url"] = OSSService().generate_signed_url(
                     conversation.avatar_oss_key, disposition="inline"
                 )
             except Exception:
-                pass  # Keep original signed URL on failure
+                pass
 
-        # Compute display_name and avatar_url for DMs (Telegram/Messenger pattern)
-        # For DMs: display the OTHER user's name and profile image
-        # For groups: use the group name and group avatar
+        # Display name + DM avatar (Messenger/Telegram pattern)
         if conversation.type == ConversationType.DM:
-            # Find the other user (not current user)
             other_members = [m for m in enriched_members if m["user_id"] != user_id]
-
             if other_members and "user" in other_members[0]:
-                other_user_data = other_members[0]["user"]
-                # Use first_name + last_name as display name
-                first_name = other_user_data.get("first_name", "")
-                last_name = other_user_data.get("last_name", "")
-                display_name = f"{first_name} {last_name}".strip()
-
-                # Fallback to email if no name available
-                if not display_name:
-                    display_name = other_user_data.get("email", "Direct Message")
-
-                conversation_dict["display_name"] = display_name
-
-                # For DMs, use the other user's profile image as avatar (Messenger/Telegram pattern)
-                other_user_image = other_user_data.get("image")
-                if other_user_image:
-                    conversation_dict["avatar_url"] = other_user_image
-
+                other = other_members[0]["user"]
+                display_name = f"{other.get('first_name', '')} {other.get('last_name', '')}".strip()
+                conversation_dict["display_name"] = display_name or other.get("email", "Direct Message")
+                if other.get("image"):
+                    conversation_dict["avatar_url"] = other["image"]
             else:
                 conversation_dict["display_name"] = "Direct Message"
         else:
-            # For groups, use the group name
             conversation_dict["display_name"] = conversation.name or "Group Chat"
 
-        # Get unread count for current user
-        unread_count = await self.member_repo.get_unread_count(
-            conversation.id,
-            user_id
-        )
-        conversation_dict["unread_count"] = unread_count
-
-        # Get last message
-        last_message = await self.conversation_repo.get_last_message(conversation.id)
+        # Last message
         if last_message:
             conversation_dict["last_message"] = {
                 "id": last_message.id,
                 "content": last_message.content,
                 "type": last_message.type,
                 "sender_id": last_message.sender_id,
-                "timestamp": last_message.created_at,  # Frontend expects "timestamp"
-                "encrypted": getattr(last_message, 'encrypted', False) or False,
+                "timestamp": last_message.created_at,
+                "encrypted": getattr(last_message, "encrypted", False) or False,
             }
 
         return conversation_dict
+
+    async def _enrich_conversation_with_user_data(
+        self,
+        conversation: Conversation,
+        user_id: str,
+    ) -> Dict[str, Any]:
+        """
+        Enrich a single conversation (used for single-conv endpoints like GET /conversations/{id}).
+        For bulk list loading use get_user_conversations() which batches the DB calls.
+        """
+        unread_count = await self.member_repo.get_unread_count(conversation.id, user_id)
+        last_message = await self.conversation_repo.get_last_message(conversation.id)
+        return self._build_conversation_dict(conversation, user_id, unread_count, last_message)
 
     async def create_conversation(
         self,
@@ -328,6 +309,9 @@ class ConversationService:
         """
         Get all conversations for a user with pagination.
 
+        Uses two batched queries (last messages + unread counts) instead of
+        N+1 per-conversation queries — collapses O(N) DB round-trips into O(1).
+
         Args:
             user_id: User UUID
             limit: Number of conversations
@@ -337,17 +321,38 @@ class ConversationService:
             Tuple of (enriched conversations, next_cursor, has_more)
         """
         conversations, next_cursor, has_more = await self.conversation_repo.get_user_conversations(
-            user_id,
-            limit,
-            cursor
+            user_id, limit, cursor
         )
 
-        # Enrich conversations
-        enriched_conversations = []
-        for conversation in conversations:
-            enriched_conversations.append(
-                await self._enrich_conversation_with_user_data(conversation, user_id)
+        if not conversations:
+            return [], next_cursor, has_more
+
+        conv_ids = [c.id for c in conversations]
+
+        # Batch fetch last messages — 1 query for all conversations
+        last_messages = await self.conversation_repo.get_last_messages_batch(conv_ids)
+
+        # Batch fetch unread counts — 1 query for all conversations.
+        # Build members_by_conv from already-loaded conversation.members (no extra DB hit).
+        members_by_conv: Dict[str, Any] = {}
+        for conv in conversations:
+            for member in conv.members:
+                if member.user_id == user_id:
+                    members_by_conv[conv.id] = member
+                    break
+
+        unread_counts = await self.member_repo.get_unread_counts_batch(user_id, members_by_conv)
+
+        # Build enriched list — pure Python, no more DB calls
+        enriched_conversations = [
+            self._build_conversation_dict(
+                conv,
+                user_id,
+                unread_count=unread_counts.get(conv.id, 0),
+                last_message=last_messages.get(conv.id),
             )
+            for conv in conversations
+        ]
 
         return enriched_conversations, next_cursor, has_more
 
@@ -976,11 +981,10 @@ class ConversationService:
         Raises:
             HTTPException: If not found or not a member
         """
-        print(f"[MARK_READ] 📖 Marking conversation {conversation_id} as read for user {user_id}")
+        logger.debug("[MARK_READ] Marking conversation %s as read for user %s", conversation_id, user_id)
 
         # Verify user is member
         if not await self.member_repo.is_member(conversation_id, user_id):
-            print(f"[MARK_READ] ❌ User {user_id} is not a member of conversation {conversation_id}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="You are not a member of this conversation"
@@ -990,13 +994,13 @@ class ConversationService:
         member = await self.member_repo.update_last_read(conversation_id, user_id)
 
         if not member:
-            print(f"[MARK_READ] ❌ Failed to update last_read_at for user {user_id}")
+            logger.warning("[MARK_READ] Failed to update last_read_at for user %s", user_id)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to update read status"
             )
 
-        print(f"[MARK_READ] ✅ Updated last_read_at to {member.last_read_at} for user {user_id}")
+        logger.debug("[MARK_READ] Updated last_read_at to %s for user %s", member.last_read_at, user_id)
 
         await self.db.commit()
 
@@ -1004,7 +1008,6 @@ class ConversationService:
         from app.core.cache import invalidate_unread_count_cache, invalidate_total_unread_count_cache
         await invalidate_unread_count_cache(str(user_id), str(conversation_id))
         await invalidate_total_unread_count_cache(str(user_id))
-        print(f"[MARK_READ] 🗑️ Invalidated unread count cache for user {user_id}")
 
         return {
             "success": True,
