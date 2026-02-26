@@ -498,6 +498,24 @@ class EncryptionService:
 
         await self.db.commit()
 
+    async def get_all_conversation_key_backups(
+        self,
+        user_id: str,
+    ) -> list[Dict[str, str]]:
+        """Fetch all conversation key backups for a user — used for bulk restore on new device."""
+        result = await self.db.execute(
+            select(ConversationKeyBackup).where(ConversationKeyBackup.user_id == user_id)
+        )
+        records = result.scalars().all()
+        return [
+            {
+                "conversation_id": r.conversation_id,
+                "encrypted_key": r.encrypted_key,
+                "nonce": r.nonce,
+            }
+            for r in records
+        ]
+
     async def get_conversation_key_backup(
         self,
         user_id: str,

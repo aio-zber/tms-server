@@ -25,6 +25,7 @@ from app.schemas.encryption import (
     KeyBackupStatusResponse,
     ConversationKeyBackupUpload,
     ConversationKeyBackupResponse,
+    ConversationKeyBackupListResponse,
 )
 from app.services.encryption_service import EncryptionService
 
@@ -406,6 +407,34 @@ async def upload_conversation_key(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to upload conversation key: {type(e).__name__}",
+        )
+
+
+@router.get(
+    "/keys/conversations",
+    response_model=ConversationKeyBackupListResponse,
+    summary="Fetch all conversation key backups",
+    description="Retrieve all encrypted conversation keys for bulk restore on a new device.",
+)
+@limiter.limit("10/minute")
+async def get_all_conversation_keys(
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Fetch all encrypted conversation key backups for multi-device bulk restore."""
+    try:
+        user_id = await _get_local_user_id(db, current_user["tms_user_id"])
+        service = EncryptionService(db)
+        records = await service.get_all_conversation_key_backups(user_id)
+        return {"keys": records}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[ENCRYPTION] get_all_conversation_keys failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch conversation keys: {type(e).__name__}",
         )
 
 
