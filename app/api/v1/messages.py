@@ -252,23 +252,10 @@ async def send_message(
     try:
         service = MessageService(db)
 
-        # Get user_id from local user record
-        from app.models.user import User
-        from sqlalchemy import select
-
-        result = await db.execute(
-            select(User).where(User.tms_user_id == current_user["tms_user_id"])
-        )
-        user = result.scalar_one_or_none()
-
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found in local database"
-            )
+        user_id = current_user["local_user_id"]
 
         message = await service.send_message(
-            sender_id=user.id,
+            sender_id=user_id,
             conversation_id=message_data.conversation_id,
             content=message_data.content,
             message_type=message_data.type,
@@ -311,22 +298,9 @@ async def get_message(
     """
     service = MessageService(db)
 
-    # Get user_id from local user record
-    from app.models.user import User
-    from sqlalchemy import select
+    user_id = current_user["local_user_id"]
 
-    result = await db.execute(
-        select(User).where(User.tms_user_id == current_user["tms_user_id"])
-    )
-    user = result.scalar_one_or_none()
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found in local database"
-        )
-
-    message = await service.get_message(message_id, user.id)
+    message = await service.get_message(message_id, user_id)
     return message
 
 
@@ -351,24 +325,11 @@ async def edit_message(
     try:
         service = MessageService(db)
 
-        # Get user_id from local user record
-        from app.models.user import User
-        from sqlalchemy import select
-
-        result = await db.execute(
-            select(User).where(User.tms_user_id == current_user["tms_user_id"])
-        )
-        user = result.scalar_one_or_none()
-
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found in local database"
-            )
+        user_id = current_user["local_user_id"]
 
         message = await service.edit_message(
             message_id=message_id,
-            user_id=user.id,
+            user_id=user_id,
             new_content=message_data.content
         )
 
@@ -411,27 +372,14 @@ async def delete_message(
     """
     service = MessageService(db)
 
-    # Get user_id from local user record
-    from app.models.user import User
-    from sqlalchemy import select
-
-    result = await db.execute(
-        select(User).where(User.tms_user_id == current_user["tms_user_id"])
-    )
-    user = result.scalar_one_or_none()
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found in local database"
-        )
+    user_id = current_user["local_user_id"]
 
     # Default to delete_for_everyone=False if no request body provided
     delete_for_everyone = delete_request.delete_for_everyone if delete_request else False
 
     result = await service.delete_message(
         message_id=message_id,
-        user_id=user.id,
+        user_id=user_id,
         delete_for_everyone=delete_for_everyone
     )
     return result
@@ -461,24 +409,11 @@ async def add_reaction(
     try:
         service = MessageService(db)
 
-        # Get user_id from local user record
-        from app.models.user import User
-        from sqlalchemy import select
-
-        result = await db.execute(
-            select(User).where(User.tms_user_id == current_user["tms_user_id"])
-        )
-        user = result.scalar_one_or_none()
-
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found in local database"
-            )
+        user_id = current_user["local_user_id"]
 
         reaction = await service.add_reaction(
             message_id=message_id,
-            user_id=user.id,
+            user_id=user_id,
             emoji=reaction_data.emoji
         )
 
@@ -520,24 +455,11 @@ async def remove_reaction(
     try:
         service = MessageService(db)
 
-        # Get user_id from local user record
-        from app.models.user import User
-        from sqlalchemy import select
-
-        result = await db.execute(
-            select(User).where(User.tms_user_id == current_user["tms_user_id"])
-        )
-        user = result.scalar_one_or_none()
-
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found in local database"
-            )
+        user_id = current_user["local_user_id"]
 
         result = await service.remove_reaction(
             message_id=message_id,
-            user_id=user.id,
+            user_id=user_id,
             emoji=emoji
         )
 
@@ -581,25 +503,11 @@ async def get_conversation_messages(
     try:
         service = MessageService(db)
 
-        # Get user_id from local user record
-        from app.models.user import User
-        from sqlalchemy import select
-        from sqlalchemy.exc import SQLAlchemyError
-
-        result = await db.execute(
-            select(User).where(User.tms_user_id == current_user["tms_user_id"])
-        )
-        user = result.scalar_one_or_none()
-
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found in local database"
-            )
+        user_id = current_user["local_user_id"]
 
         messages, next_cursor, has_more = await service.get_conversation_messages(
             conversation_id=conversation_id,
-            user_id=user.id,
+            user_id=user_id,
             limit=limit,
             cursor=cursor
         )
@@ -707,42 +615,19 @@ async def mark_messages_read(
 
         service = MessageService(db)
 
-        # LOG: User lookup
-        logger.info(f"[MARK_READ] 🔍 Looking up user: tms_user_id={current_user['tms_user_id']}")
+        user_id = current_user["local_user_id"]
 
-        # Get user_id from local user record
-        from app.models.user import User
-        from sqlalchemy import select
-
-        result = await db.execute(
-            select(User).where(User.tms_user_id == current_user["tms_user_id"])
-        )
-        user = result.scalar_one_or_none()
-
-        if not user:
-            logger.error(
-                f"[MARK_READ] ❌ User not found in local database: "
-                f"tms_user_id={current_user['tms_user_id']}"
-            )
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found in local database"
-            )
-
-        logger.info(
-            f"[MARK_READ] ✅ User found: "
-            f"local_id={user.id}, email={user.email}, name={user.first_name} {user.last_name}"
-        )
+        logger.info(f"[MARK_READ] ✅ User resolved: local_id={user_id}")
 
         # LOG: Service call
         logger.info(
             f"[MARK_READ] 🚀 Calling service.mark_messages_read: "
-            f"user_id={user.id}, conversation_id={request_data.conversation_id}"
+            f"user_id={user_id}, conversation_id={request_data.conversation_id}"
         )
 
         result = await service.mark_messages_read(
             message_ids=request_data.message_ids,
-            user_id=user.id,
+            user_id=user_id,
             conversation_id=request_data.conversation_id
         )
 
@@ -796,24 +681,11 @@ async def mark_messages_delivered(
     """
     service = MessageService(db)
 
-    # Get user_id from local user record
-    from app.models.user import User
-    from sqlalchemy import select
-
-    result = await db.execute(
-        select(User).where(User.tms_user_id == current_user["tms_user_id"])
-    )
-    user = result.scalar_one_or_none()
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found in local database"
-        )
+    user_id = current_user["local_user_id"]
 
     result = await service.mark_messages_delivered(
         conversation_id=request_data.conversation_id,
-        user_id=user.id,
+        user_id=user_id,
         message_ids=request_data.message_ids if request_data.message_ids else None
     )
 
@@ -840,25 +712,12 @@ async def get_conversation_unread_count(
     """
     service = MessageService(db)
 
-    # Get user_id from local user record
-    from app.models.user import User
-    from sqlalchemy import select
-
-    result = await db.execute(
-        select(User).where(User.tms_user_id == current_user["tms_user_id"])
-    )
-    user = result.scalar_one_or_none()
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found in local database"
-        )
+    user_id = current_user["local_user_id"]
 
     # Use ConversationMemberRepository with last_read_at timestamp (more reliable)
     from app.repositories.conversation_repo import ConversationMemberRepository
     member_repo = ConversationMemberRepository(db)
-    count = await member_repo.get_unread_count(conversation_id, user.id)
+    count = await member_repo.get_unread_count(conversation_id, user_id)
 
     return {
         "conversation_id": str(conversation_id),
@@ -883,20 +742,7 @@ async def get_total_unread_count(
 
     Returns the total count and per-conversation breakdown.
     """
-    # Get user_id from local user record
-    from app.models.user import User
-    from sqlalchemy import select
-
-    result = await db.execute(
-        select(User).where(User.tms_user_id == current_user["tms_user_id"])
-    )
-    user = result.scalar_one_or_none()
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found in local database"
-        )
+    user_id = current_user["local_user_id"]
 
     # Get all conversations the user is part of
     from app.models.conversation import ConversationMember
@@ -904,7 +750,7 @@ async def get_total_unread_count(
 
     result = await db.execute(
         select(ConversationMember.conversation_id)
-        .where(ConversationMember.user_id == user.id)
+        .where(ConversationMember.user_id == user_id)
     )
     conversation_ids = [row[0] for row in result.all()]
 
@@ -914,7 +760,7 @@ async def get_total_unread_count(
     total_count = 0
 
     for conversation_id in conversation_ids:
-        count = await member_repo.get_unread_count(conversation_id, user.id)
+        count = await member_repo.get_unread_count(conversation_id, user_id)
         if count > 0:
             conversation_counts[str(conversation_id)] = count
             total_count += count
@@ -961,29 +807,12 @@ async def search_messages(
 
         service = MessageService(db)
 
-        # Get user_id from local user record
-        from app.models.user import User
-        from sqlalchemy import select
-
-        result = await db.execute(
-            select(User).where(User.tms_user_id == current_user["tms_user_id"])
-        )
-        user = result.scalar_one_or_none()
-
-        if not user:
-            logger.error(
-                f"[MESSAGE_SEARCH] ❌ User not found: tms_user_id={current_user['tms_user_id']}"
-            )
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found in local database"
-            )
-
-        logger.info(f"[MESSAGE_SEARCH] ✅ User found: local_id={user.id}")
+        user_id = current_user["local_user_id"]
+        logger.info(f"[MESSAGE_SEARCH] ✅ User resolved: local_id={user_id}")
 
         messages = await service.search_messages(
             query=search_data.query,
-            user_id=user.id,
+            user_id=user_id,
             conversation_id=search_data.conversation_id,
             sender_id=search_data.sender_id,
             start_date=search_data.start_date,
@@ -1040,24 +869,11 @@ async def clear_conversation(
     """
     service = MessageService(db)
 
-    # Get user_id from local user record
-    from app.models.user import User
-    from sqlalchemy import select
-
-    result = await db.execute(
-        select(User).where(User.tms_user_id == current_user["tms_user_id"])
-    )
-    user = result.scalar_one_or_none()
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found in local database"
-        )
+    user_id = current_user["local_user_id"]
 
     deleted_count = await service.clear_conversation(
         conversation_id=conversation_id,
-        user_id=user.id
+        user_id=user_id
     )
 
     return {
@@ -1086,18 +902,11 @@ async def get_x3dh_header(
     from sqlalchemy import select, asc
     from app.repositories.conversation_repo import ConversationMemberRepository
 
-    # Verify user exists
-    from app.models.user import User
-    result = await db.execute(
-        select(User).where(User.tms_user_id == current_user["tms_user_id"])
-    )
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+    user_id = current_user["local_user_id"]
 
     # Verify user is a member of the conversation (security: no leaking headers to non-members)
     member_repo = ConversationMemberRepository(db)
-    if not await member_repo.is_member(conversation_id, user.id):
+    if not await member_repo.is_member(conversation_id, user_id):
         raise HTTPException(status_code=403, detail="Not a member of this conversation")
 
     # Find first encrypted message with x3dhHeader in metadata_json
@@ -1164,20 +973,7 @@ async def upload_file_message(
     try:
         service = MessageService(db)
 
-        # Get user_id from local user record
-        from app.models.user import User
-        from sqlalchemy import select
-
-        result = await db.execute(
-            select(User).where(User.tms_user_id == current_user["tms_user_id"])
-        )
-        user = result.scalar_one_or_none()
-
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found in local database"
-            )
+        user_id = current_user["local_user_id"]
 
         # Parse encryption metadata if present
         is_encrypted = encrypted == "true"
@@ -1194,7 +990,7 @@ async def upload_file_message(
 
         # Delegate to message service for file upload handling
         message = await service.handle_file_upload(
-            sender_id=user.id,
+            sender_id=user_id,
             conversation_id=conversation_id,
             file=file,
             reply_to_id=reply_to_id,
