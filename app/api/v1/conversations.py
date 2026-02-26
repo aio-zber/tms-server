@@ -26,13 +26,20 @@ router = APIRouter()
 
 
 async def get_current_user_from_db(current_user: dict, db: AsyncSession):
-    """Helper to get local user from TMS user."""
+    """Helper to get local user from TMS user.
+
+    Uses local_user_id already resolved by get_current_user — no extra DB query.
+    Falls back to tms_user_id lookup only if local_user_id is missing (shouldn't happen).
+    """
     from app.models.user import User
     from sqlalchemy import select
 
-    result = await db.execute(
-        select(User).where(User.tms_user_id == current_user["tms_user_id"])
-    )
+    local_id = current_user.get("local_user_id")
+    if local_id:
+        result = await db.execute(select(User).where(User.id == local_id))
+    else:
+        result = await db.execute(select(User).where(User.tms_user_id == current_user["tms_user_id"]))
+
     user = result.scalar_one_or_none()
 
     if not user:
