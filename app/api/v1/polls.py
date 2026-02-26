@@ -5,6 +5,7 @@ Provides endpoints for creating polls, voting, and managing poll results.
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
