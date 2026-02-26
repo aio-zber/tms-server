@@ -35,21 +35,6 @@ router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
 
 
-async def _get_local_user_id(db: AsyncSession, tms_user_id: str) -> str:
-    """Resolve TMS user ID to local user ID."""
-    from app.models.user import User
-    from sqlalchemy import select
-
-    result = await db.execute(
-        select(User).where(User.tms_user_id == tms_user_id)
-    )
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found in local database",
-        )
-    return user.id
 
 
 @router.post(
@@ -67,7 +52,7 @@ async def upload_key_bundle(
 ):
     """Upload the current user's E2EE key bundle."""
     try:
-        user_id = await _get_local_user_id(db, current_user["tms_user_id"])
+        user_id = current_user["local_user_id"]
         service = EncryptionService(db)
 
         await service.upsert_key_bundle(
@@ -163,7 +148,7 @@ async def replenish_prekeys(
 ):
     """Add more one-time pre-keys."""
     try:
-        user_id = await _get_local_user_id(db, current_user["tms_user_id"])
+        user_id = current_user["local_user_id"]
         service = EncryptionService(db)
 
         added = await service.add_prekeys(
@@ -196,7 +181,7 @@ async def get_prekey_count(
     db: AsyncSession = Depends(get_db),
 ):
     """Get remaining pre-key count for the current user."""
-    user_id = await _get_local_user_id(db, current_user["tms_user_id"])
+    user_id = current_user["local_user_id"]
     service = EncryptionService(db)
     count = await service.get_prekey_count(user_id)
     return {"count": count}
@@ -217,7 +202,7 @@ async def distribute_sender_key(
 ):
     """Distribute a sender key to group members."""
     try:
-        user_id = await _get_local_user_id(db, current_user["tms_user_id"])
+        user_id = current_user["local_user_id"]
         service = EncryptionService(db)
 
         await service.distribute_sender_key(
@@ -257,7 +242,7 @@ async def get_sender_keys(
 ):
     """Fetch all sender keys for a group (called when opening a group chat)."""
     try:
-        user_id = await _get_local_user_id(db, current_user["tms_user_id"])
+        user_id = current_user["local_user_id"]
         service = EncryptionService(db)
 
         keys = await service.get_sender_keys(
@@ -296,7 +281,7 @@ async def upload_key_backup(
 ):
     """Upload an encrypted key backup."""
     try:
-        user_id = await _get_local_user_id(db, current_user["tms_user_id"])
+        user_id = current_user["local_user_id"]
         service = EncryptionService(db)
 
         await service.upsert_key_backup(
@@ -334,7 +319,7 @@ async def get_key_backup(
 ):
     """Download the encrypted key backup."""
     try:
-        user_id = await _get_local_user_id(db, current_user["tms_user_id"])
+        user_id = current_user["local_user_id"]
         service = EncryptionService(db)
 
         backup = await service.get_key_backup(user_id)
@@ -366,7 +351,7 @@ async def get_key_backup_status(
     db: AsyncSession = Depends(get_db),
 ):
     """Check if a key backup exists."""
-    user_id = await _get_local_user_id(db, current_user["tms_user_id"])
+    user_id = current_user["local_user_id"]
     service = EncryptionService(db)
     return await service.has_key_backup(user_id)
 
@@ -389,7 +374,7 @@ async def upload_conversation_key(
 ):
     """Upload an encrypted conversation key for multi-device recovery."""
     try:
-        user_id = await _get_local_user_id(db, current_user["tms_user_id"])
+        user_id = current_user["local_user_id"]
         service = EncryptionService(db)
 
         await service.upsert_conversation_key_backup(
@@ -424,7 +409,7 @@ async def get_all_conversation_keys(
 ):
     """Fetch all encrypted conversation key backups for multi-device bulk restore."""
     try:
-        user_id = await _get_local_user_id(db, current_user["tms_user_id"])
+        user_id = current_user["local_user_id"]
         service = EncryptionService(db)
         records = await service.get_all_conversation_key_backups(user_id)
         return {"keys": records}
@@ -453,7 +438,7 @@ async def get_conversation_key(
 ):
     """Fetch the encrypted conversation key for multi-device recovery."""
     try:
-        user_id = await _get_local_user_id(db, current_user["tms_user_id"])
+        user_id = current_user["local_user_id"]
         service = EncryptionService(db)
 
         record = await service.get_conversation_key_backup(user_id, conversation_id)

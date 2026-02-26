@@ -45,25 +45,11 @@ async def create_poll(
     """
     try:
         service = PollService(db)
-
-        # Get user_id from local user record
-        from app.models.user import User
-        from sqlalchemy import select
-
-        result = await db.execute(
-            select(User).where(User.tms_user_id == current_user["tms_user_id"])
-        )
-        user = result.scalar_one_or_none()
-
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found in local database"
-            )
+        user_id = current_user["local_user_id"]
 
         # Create poll
         result = await service.create_poll(
-            user_id=user.id,
+            user_id=user_id,
             conversation_id=poll_data.conversation_id,
             question=poll_data.question,
             options=[{"option_text": opt.option_text, "position": opt.position} for opt in poll_data.options],
@@ -140,39 +126,24 @@ async def vote_on_poll(
     service = PollService(db)
 
     try:
-        # Get user_id from local user record
-        from app.models.user import User
-        from sqlalchemy import select
-
-        result = await db.execute(
-            select(User).where(User.tms_user_id == current_user["tms_user_id"])
-        )
-        user = result.scalar_one_or_none()
-
-        if not user:
-            logger.warning(f"[POLLS] User not found: tms_user_id={current_user.get('tms_user_id')}")
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found in local database"
-            )
-
-        logger.info(f"[POLLS] Vote request: poll_id={poll_id}, user_id={user.id}, option_ids={vote_data.option_ids}")
+        user_id = current_user["local_user_id"]
+        logger.info(f"[POLLS] Vote request: poll_id={poll_id}, user_id={user_id}, option_ids={vote_data.option_ids}")
 
         # Vote on poll
         poll_response = await service.vote_on_poll(
             poll_id=poll_id,
-            user_id=user.id,
+            user_id=user_id,
             option_ids=vote_data.option_ids
         )
 
-        logger.info(f"[POLLS] ✅ Vote successful: poll_id={poll_id}, user_id={user.id}")
+        logger.info(f"[POLLS] ✅ Vote successful: poll_id={poll_id}, user_id={user_id}")
 
     except HTTPException:
         # Re-raise HTTP exceptions (already have proper status codes)
         raise
     except Exception as error:
         logger.error(
-            f"[POLLS] ❌ Vote failed: poll_id={poll_id}, user_id={user.id if 'user' in locals() else 'unknown'}, "
+            f"[POLLS] ❌ Vote failed: poll_id={poll_id}, user_id={user_id if 'user_id' in locals() else 'unknown'}, "
             f"error={type(error).__name__}: {str(error)}",
             exc_info=True
         )
@@ -212,7 +183,7 @@ async def vote_on_poll(
 
             broadcast_data = {
                 "poll_id": str(poll_id),
-                "user_id": str(user.id),
+                "user_id": str(user_id),
                 "poll": convert_uuids(poll_response.model_dump(by_alias=True, mode='json'))
             }
 
@@ -250,24 +221,10 @@ async def close_poll(
     - **poll_id**: ID of the poll
     """
     service = PollService(db)
-
-    # Get user_id from local user record
-    from app.models.user import User
-    from sqlalchemy import select
-
-    result = await db.execute(
-        select(User).where(User.tms_user_id == current_user["tms_user_id"])
-    )
-    user = result.scalar_one_or_none()
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found in local database"
-        )
+    user_id = current_user["local_user_id"]
 
     # Close poll
-    poll_response = await service.close_poll(poll_id, user.id)
+    poll_response = await service.close_poll(poll_id, user_id)
 
     # Get conversation_id for WebSocket broadcast
     from app.models.poll import Poll
@@ -331,20 +288,6 @@ async def get_poll(
     - **poll_id**: ID of the poll
     """
     service = PollService(db)
+    user_id = current_user["local_user_id"]
 
-    # Get user_id from local user record
-    from app.models.user import User
-    from sqlalchemy import select
-
-    result = await db.execute(
-        select(User).where(User.tms_user_id == current_user["tms_user_id"])
-    )
-    user = result.scalar_one_or_none()
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found in local database"
-        )
-
-    return await service.get_poll(poll_id, user.id)
+    return await service.get_poll(poll_id, user_id)

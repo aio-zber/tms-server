@@ -25,32 +25,6 @@ from app.services.conversation_service import ConversationService
 router = APIRouter()
 
 
-async def get_current_user_from_db(current_user: dict, db: AsyncSession):
-    """Helper to get local user from TMS user.
-
-    Uses local_user_id already resolved by get_current_user — no extra DB query.
-    Falls back to tms_user_id lookup only if local_user_id is missing (shouldn't happen).
-    """
-    from app.models.user import User
-    from sqlalchemy import select
-
-    local_id = current_user.get("local_user_id")
-    if local_id:
-        result = await db.execute(select(User).where(User.id == local_id))
-    else:
-        result = await db.execute(select(User).where(User.tms_user_id == current_user["tms_user_id"]))
-
-    user = result.scalar_one_or_none()
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found in local database"
-        )
-
-    return user
-
-
 @router.post(
     "/",
     response_model=ConversationResponse,
@@ -78,7 +52,7 @@ async def create_conversation(
     # UUID import removed - using str for ID types
 
     service = ConversationService(db)
-    user = await get_current_user_from_db(current_user, db)
+    user_id = current_user["local_user_id"]
     user_repo = UserRepository(db)
 
     # Validate: current user should NOT be in member_ids (they're added automatically as creator/admin)
@@ -122,7 +96,7 @@ async def create_conversation(
 
     # Create conversation with local UUIDs
     conversation = await service.create_conversation(
-        creator_id=user.id,
+        creator_id=user_id,
         type=conversation_data.type,
         member_ids=local_member_ids,
         name=conversation_data.name,
@@ -151,10 +125,10 @@ async def get_user_conversations(
     - **cursor**: Last conversation ID for pagination
     """
     service = ConversationService(db)
-    user = await get_current_user_from_db(current_user, db)
+    user_id = current_user["local_user_id"]
 
     conversations, next_cursor, has_more = await service.get_user_conversations(
-        user_id=user.id,
+        user_id=user_id,
         limit=limit,
         cursor=cursor
     )
@@ -195,10 +169,10 @@ async def search_conversations(
     - **limit**: Maximum results (max 50)
     """
     service = ConversationService(db)
-    user = await get_current_user_from_db(current_user, db)
+    user_id = current_user["local_user_id"]
 
     conversations = await service.search_conversations(
-        user_id=user.id,
+        user_id=user_id,
         query=q,
         limit=limit
     )
@@ -230,9 +204,9 @@ async def get_conversation(
     - **conversation_id**: ID of the conversation to retrieve
     """
     service = ConversationService(db)
-    user = await get_current_user_from_db(current_user, db)
+    user_id = current_user["local_user_id"]
 
-    conversation = await service.get_conversation(conversation_id, user.id)
+    conversation = await service.get_conversation(conversation_id, user_id)
     return conversation
 
 
@@ -256,11 +230,11 @@ async def update_conversation(
     - **avatar_url**: Updated avatar URL
     """
     service = ConversationService(db)
-    user = await get_current_user_from_db(current_user, db)
+    user_id = current_user["local_user_id"]
 
     conversation = await service.update_conversation(
         conversation_id=conversation_id,
-        user_id=user.id,
+        user_id=user_id,
         name=conversation_data.name,
         avatar_url=conversation_data.avatar_url
     )
@@ -293,7 +267,7 @@ async def add_members(
     from sqlalchemy import select
 
     service = ConversationService(db)
-    user = await get_current_user_from_db(current_user, db)
+    user_id = current_user["local_user_id"]
     user_repo = UserRepository(db)
 
     # Convert TMS user IDs to local database IDs
@@ -329,7 +303,7 @@ async def add_members(
     # Add members using local UUIDs
     result = await service.add_members(
         conversation_id=conversation_id,
-        user_id=user.id,
+        user_id=user_id,
         member_ids=local_member_ids
     )
 
@@ -355,11 +329,11 @@ async def remove_member(
     - **member_id**: ID of the member to remove
     """
     service = ConversationService(db)
-    user = await get_current_user_from_db(current_user, db)
+    user_id = current_user["local_user_id"]
 
     result = await service.remove_member(
         conversation_id=conversation_id,
-        user_id=user.id,
+        user_id=user_id,
         member_id=member_id
     )
 
@@ -383,11 +357,11 @@ async def leave_conversation(
     - **conversation_id**: ID of the conversation to leave
     """
     service = ConversationService(db)
-    user = await get_current_user_from_db(current_user, db)
+    user_id = current_user["local_user_id"]
 
     result = await service.leave_conversation(
         conversation_id=conversation_id,
-        user_id=user.id
+        user_id=user_id
     )
 
     return result
@@ -413,11 +387,11 @@ async def update_conversation_settings(
     - **mute_until**: Optional mute expiration datetime
     """
     service = ConversationService(db)
-    user = await get_current_user_from_db(current_user, db)
+    user_id = current_user["local_user_id"]
 
     result = await service.update_member_settings(
         conversation_id=conversation_id,
-        user_id=user.id,
+        user_id=user_id,
         is_muted=settings_data.is_muted,
         mute_until=settings_data.mute_until
     )
@@ -442,11 +416,11 @@ async def mark_conversation_read(
     - **conversation_id**: ID of the conversation
     """
     service = ConversationService(db)
-    user = await get_current_user_from_db(current_user, db)
+    user_id = current_user["local_user_id"]
 
     result = await service.mark_conversation_read(
         conversation_id=conversation_id,
-        user_id=user.id
+        user_id=user_id
     )
 
     return result
@@ -475,13 +449,13 @@ async def upload_conversation_avatar(
 
     try:
         service = ConversationService(db)
-        user = await get_current_user_from_db(current_user, db)
+        user_id = current_user["local_user_id"]
 
         # Verify user is a member of the conversation
         from app.repositories.conversation_repo import ConversationMemberRepository
         member_repo = ConversationMemberRepository(db)
 
-        if not await member_repo.is_member(conversation_id, user.id):
+        if not await member_repo.is_member(conversation_id, user_id):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You are not a member of this conversation"
@@ -533,7 +507,7 @@ async def upload_conversation_avatar(
         # Update conversation with new avatar URL and oss_key (for URL refresh on fetch)
         updated_conversation = await service.update_conversation(
             conversation_id=conversation_id,
-            user_id=user.id,
+            user_id=user_id,
             avatar_url=avatar_url,
             avatar_oss_key=avatar_oss_key,
         )
