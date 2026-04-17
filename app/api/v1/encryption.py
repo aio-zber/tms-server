@@ -205,6 +205,18 @@ async def distribute_sender_key(
         user_id = current_user["local_user_id"]
         service = EncryptionService(db)
 
+        encrypted_dists = None
+        if data.encrypted_distributions:
+            encrypted_dists = [
+                {
+                    "recipient_id": d.recipient_id,
+                    "encrypted_key": d.encrypted_key,
+                    "nonce": d.nonce,
+                    "ephemeral_public_key": d.ephemeral_public_key,
+                }
+                for d in data.encrypted_distributions
+            ]
+
         await service.distribute_sender_key(
             sender_id=user_id,
             conversation_id=data.conversation_id,
@@ -212,6 +224,7 @@ async def distribute_sender_key(
             public_key=data.distribution.public_key,
             recipients=data.recipients,
             chain_key=data.distribution.chain_key,
+            encrypted_distributions=encrypted_dists,
         )
 
         return {"success": True, "message": "Sender key distributed"}

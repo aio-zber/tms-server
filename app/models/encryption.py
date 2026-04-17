@@ -332,3 +332,90 @@ class ConversationKeyBackup(Base):
 
     def __repr__(self) -> str:
         return f"<ConversationKeyBackup(user_id={self.user_id}, conversation_id={self.conversation_id})>"
+
+
+class GroupKeyDistribution(Base):
+    """
+    Per-recipient encrypted group key distribution.
+
+    The group conversation key is encrypted individually for each recipient using
+    ECDH (ephemeral key × recipient identity key → shared secret → encrypt group key).
+    The server stores one opaque encrypted blob per recipient and never sees the
+    plaintext group key — only the intended recipient can decrypt their copy.
+    """
+
+    __tablename__ = "group_key_distributions"
+
+    id: Mapped[str] = mapped_column(
+        String(255),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+        doc="Unique record ID",
+    )
+
+    conversation_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        doc="Group conversation this distribution is for",
+    )
+
+    recipient_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        doc="User who can decrypt this blob",
+    )
+
+    sender_id: Mapped[str] = mapped_column(
+        String(255),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        doc="User who distributed the group key",
+    )
+
+    sender_key_id: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        doc="Group key ID (matches GroupSenderKey.sender_key_id)",
+    )
+
+    encrypted_key: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        doc="Base64 group key encrypted for this recipient (ECDH + XSalsa20-Poly1305)",
+    )
+
+    nonce: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        doc="Base64 nonce used for encryption",
+    )
+
+    ephemeral_public_key: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        doc="Base64 ephemeral X25519 public key used in ECDH",
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        doc="When this distribution was created",
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "conversation_id", "recipient_id",
+            name="uq_group_key_distribution",
+        ),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<GroupKeyDistribution(conversation_id={self.conversation_id}, "
+            f"recipient_id={self.recipient_id})>"
+        )
