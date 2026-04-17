@@ -11,7 +11,7 @@ from typing import Optional, List, Dict, Any
 from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.encryption import UserKeyBundle, OneTimePreKey, GroupSenderKey, KeyBackup, ConversationKeyBackup
+from app.models.encryption import UserKeyBundle, OneTimePreKey, GroupSenderKey, KeyBackup, ConversationKeyBackup, GroupKeyDistribution
 from app.utils.datetime_utils import utc_now
 from app.core.cache import cache
 
@@ -268,15 +268,16 @@ class EncryptionService:
         Fetch all sender keys for a group conversation.
 
         Only members of the conversation can fetch sender keys.
-        Returns all sender keys except the requesting user's own key
-        (they already have it locally).
+        For each sender, returns either:
+        - The encrypted blob addressed to requesting_user_id (when per-recipient encryption used)
+        - The legacy plaintext public_signing_key (backwards compat)
 
         Args:
             conversation_id: Group conversation ID
             requesting_user_id: User requesting the keys
 
         Returns:
-            List of sender key dicts with sender_id, key_id, public_signing_key, chain_key
+            List of sender key dicts
         """
         from app.models.conversation import ConversationMember
         # Verify membership
@@ -296,74 +297,170 @@ class EncryptionService:
         )
         keys = result.scalars().all()
 
-        return [
-            {
-                "sender_id": k.sender_id,
-                "key_id": k.sender_key_id,
-                "public_signing_key": k.public_key,
-                "chain_key": k.chain_key,
-            }
-            for k in keys
-        ]
+        # Fetch per-recipient encrypted blobs for this user in one query
+        dist_result = await self.db.execute(
+            select(GroupKeyDistribution).where(
+                GroupKeyDistribution.conversation_id == conversation_id,
+                GroupKeyDistribution.recipient_id == requesting_user_id,
+            )
+        )
+        # Map sender_id → distribution row
+        dist_by_sender = {d.sender_id: d for d in dist_result.scalars().all()}
+
+        output = []
+        for k in keys:
+            dist = dist_by_sender.get(k.sender_id)
+            if dist:
+                # Per-recipient encrypted blob path (zero-knowledge)
+                output.append({
+                    "sender_id": k.sender_id,
+                    "key_id": k.sender_key_id,
+                    "public_signing_key": None,
+                    "chain_key": None,
+                    "encrypted_key": dist.encrypted_key,
+                    "nonce": dist.nonce,
+                    "ephemeral_public_key": dist.ephemeral_public_key,
+                })
+            else:
+                # Legacy plaintext path
+                output.append({
+                    "sender_id": k.sender_id,
+                    "key_id": k.sender_key_id,
+                    "public_signing_key": k.public_key,
+                    "chain_key": k.chain_key,
+                    "encrypted_key": None,
+                    "nonce": None,
+                    "ephemeral_public_key": None,
+                })
+
+        return output
 
     async def distribute_sender_key(
         self,
         sender_id: str,
         conversation_id: str,
         sender_key_id: str,
-        public_key: str,
+        public_key: Optional[str],
         recipients: List[str],
         chain_key: Optional[str] = None,
+        encrypted_distributions: Optional[List[Dict[str, str]]] = None,
     ) -> None:
         """
         Store sender key and relay distribution to recipients via WebSocket.
+
+        When encrypted_distributions is provided (WhatsApp-style), each recipient
+        receives only their own encrypted blob — the server never sees the plaintext
+        group key. Falls back to legacy plaintext public_key if not provided.
 
         Args:
             sender_id: User distributing their key
             conversation_id: Group conversation
             sender_key_id: Client-assigned key ID
-            public_key: Base64-encoded signing public key
+            public_key: Deprecated plaintext key (ignored when encrypted_distributions present)
             recipients: User IDs to distribute to
-            chain_key: Base64-encoded initial chain key (required for decryption)
+            chain_key: Ignored in static key model (kept for compat)
+            encrypted_distributions: List of {recipient_id, encrypted_key, nonce, ephemeral_public_key}
         """
-        # Store the sender key (including chain_key for later fetching by members)
-        await self.upsert_sender_key(
-            conversation_id, sender_id, sender_key_id, public_key, chain_key
-        )
-        await self.db.commit()
-
-        # Relay to recipients via WebSocket.
-        # Field names match what the client's receiveSenderKeyDistribution() expects:
-        # key_id, chain_key, public_signing_key (not sender_key_id / public_key)
         from app.core.websocket import connection_manager
 
-        distribution_data = {
-            "conversation_id": conversation_id,
-            "sender_id": sender_id,
-            "key_id": sender_key_id,
-            "public_signing_key": public_key,
-            "chain_key": chain_key,
-        }
+        if encrypted_distributions:
+            # WhatsApp/Signal pattern: store per-recipient encrypted blobs
+            # Build lookup for fast relay
+            dist_by_recipient: Dict[str, Dict[str, str]] = {
+                d["recipient_id"]: d for d in encrypted_distributions
+            }
 
-        for recipient_id in recipients:
-            if recipient_id == sender_id:
-                continue
-            sids = connection_manager.user_sessions.get(recipient_id, set())
-            for sid in sids:
-                try:
-                    await connection_manager.sio.emit(
-                        "sender_key_distribution",
-                        distribution_data,
-                        to=sid,
+            # Upsert GroupSenderKey row (for tracking sender_key_id) with null public_key
+            await self.upsert_sender_key(
+                conversation_id, sender_id, sender_key_id, public_key=None, chain_key=None
+            )
+
+            # Upsert per-recipient encrypted blobs
+            for dist in encrypted_distributions:
+                recipient_id = dist["recipient_id"]
+                existing = await self.db.execute(
+                    select(GroupKeyDistribution).where(
+                        GroupKeyDistribution.conversation_id == conversation_id,
+                        GroupKeyDistribution.recipient_id == recipient_id,
                     )
-                except Exception as e:
-                    logger.error(
-                        f"[ENCRYPTION] Failed to relay sender key to {recipient_id}: {e}"
-                    )
+                )
+                existing_row = existing.scalar_one_or_none()
+                if existing_row:
+                    existing_row.sender_id = sender_id
+                    existing_row.sender_key_id = sender_key_id
+                    existing_row.encrypted_key = dist["encrypted_key"]
+                    existing_row.nonce = dist["nonce"]
+                    existing_row.ephemeral_public_key = dist["ephemeral_public_key"]
+                else:
+                    self.db.add(GroupKeyDistribution(
+                        conversation_id=conversation_id,
+                        recipient_id=recipient_id,
+                        sender_id=sender_id,
+                        sender_key_id=sender_key_id,
+                        encrypted_key=dist["encrypted_key"],
+                        nonce=dist["nonce"],
+                        ephemeral_public_key=dist["ephemeral_public_key"],
+                    ))
+
+            await self.db.commit()
+
+            # Relay each recipient's own encrypted blob via WebSocket
+            for recipient_id in recipients:
+                if recipient_id == sender_id:
+                    continue
+                dist = dist_by_recipient.get(recipient_id)
+                if not dist:
+                    continue
+                ws_data = {
+                    "conversation_id": conversation_id,
+                    "sender_id": sender_id,
+                    "key_id": sender_key_id,
+                    "encrypted_key": dist["encrypted_key"],
+                    "nonce": dist["nonce"],
+                    "ephemeral_public_key": dist["ephemeral_public_key"],
+                }
+                sids = connection_manager.user_sessions.get(recipient_id, set())
+                for sid in sids:
+                    try:
+                        await connection_manager.sio.emit(
+                            "sender_key_distribution", ws_data, to=sid,
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"[ENCRYPTION] Failed to relay sender key to {recipient_id}: {e}"
+                        )
+        else:
+            # Legacy path: plaintext public_key broadcast to all recipients
+            await self.upsert_sender_key(
+                conversation_id, sender_id, sender_key_id, public_key, chain_key
+            )
+            await self.db.commit()
+
+            distribution_data = {
+                "conversation_id": conversation_id,
+                "sender_id": sender_id,
+                "key_id": sender_key_id,
+                "public_signing_key": public_key,
+                "chain_key": chain_key,
+            }
+            for recipient_id in recipients:
+                if recipient_id == sender_id:
+                    continue
+                sids = connection_manager.user_sessions.get(recipient_id, set())
+                for sid in sids:
+                    try:
+                        await connection_manager.sio.emit(
+                            "sender_key_distribution", distribution_data, to=sid,
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"[ENCRYPTION] Failed to relay sender key to {recipient_id}: {e}"
+                        )
 
         logger.info(
             f"[ENCRYPTION] Sender key distributed: sender={sender_id}, "
-            f"conversation={conversation_id}, recipients={len(recipients)}"
+            f"conversation={conversation_id}, recipients={len(recipients)}, "
+            f"encrypted={'yes' if encrypted_distributions else 'legacy'}"
         )
 
     # ==================== Key Backup ====================

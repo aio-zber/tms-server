@@ -92,9 +92,19 @@ class SenderKeyDistributionData(BaseModel):
     """Sender key data for group encryption."""
 
     sender_key_id: str = Field(..., max_length=64, description="Sender key ID")
-    public_key: str = Field(..., description="Base64-encoded sender key public data")
+    # Legacy plaintext field — kept for backwards compat, ignored when encrypted_distributions present
+    public_key: Optional[str] = Field(None, description="Deprecated: raw group key bytes (plaintext)")
     chain_key: Optional[str] = Field(None, description="Base64-encoded initial chain key")
     signature_key: Optional[str] = Field(None, description="Base64-encoded signing public key")
+
+
+class EncryptedKeyDistribution(BaseModel):
+    """Per-recipient encrypted group key blob."""
+
+    recipient_id: str = Field(..., description="User ID of the intended recipient")
+    encrypted_key: str = Field(..., description="Base64 group key encrypted for this recipient")
+    nonce: str = Field(..., description="Base64 nonce used for encryption")
+    ephemeral_public_key: str = Field(..., description="Base64 ephemeral X25519 public key")
 
 
 class SenderKeyDistribute(BaseModel):
@@ -110,16 +120,26 @@ class SenderKeyDistribute(BaseModel):
         ...,
         description="Sender key distribution data",
     )
+    # Per-recipient encrypted blobs — when present, public_key in distribution is ignored
+    encrypted_distributions: Optional[List[EncryptedKeyDistribution]] = Field(
+        None,
+        description="Per-recipient encrypted group key blobs (WhatsApp-style zero-knowledge)",
+    )
 
     class Config:
         json_schema_extra = {
             "example": {
                 "conversation_id": "conversation-uuid",
                 "recipients": ["user-uuid-1", "user-uuid-2"],
-                "distribution": {
-                    "sender_key_id": "abc123",
-                    "public_key": "base64EncodedKey==",
-                },
+                "distribution": {"sender_key_id": "abc123"},
+                "encrypted_distributions": [
+                    {
+                        "recipient_id": "user-uuid-1",
+                        "encrypted_key": "base64CipherText==",
+                        "nonce": "base64Nonce==",
+                        "ephemeral_public_key": "base64EphKey==",
+                    }
+                ],
             }
         }
 
@@ -129,8 +149,12 @@ class SenderKeyEntry(BaseModel):
 
     sender_id: str
     key_id: str
-    public_signing_key: str
+    public_signing_key: Optional[str] = None  # null when per-recipient encryption is used
     chain_key: Optional[str] = None
+    # Per-recipient encrypted blob fields (present when encrypted distribution was used)
+    encrypted_key: Optional[str] = None
+    nonce: Optional[str] = None
+    ephemeral_public_key: Optional[str] = None
 
 
 class SenderKeysResponse(BaseModel):
