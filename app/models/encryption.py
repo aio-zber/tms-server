@@ -62,6 +62,12 @@ class UserKeyBundle(Base):
         doc="ID of the signed pre-key (for rotation tracking)",
     )
 
+    signing_key: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        doc="Base64-encoded Ed25519 public signing key (for SPK signature verification)",
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

@@ -32,6 +32,7 @@ class EncryptionService:
         signed_prekey_signature: str,
         signed_prekey_id: int,
         one_time_prekeys: List[Dict[str, Any]],
+        signing_key: str | None = None,
     ) -> None:
         """
         Upload or update a user's key bundle.
@@ -46,6 +47,7 @@ class EncryptionService:
             signed_prekey_signature: Base64-encoded signature
             signed_prekey_id: Signed pre-key ID
             one_time_prekeys: List of {key_id, public_key} dicts
+            signing_key: Base64-encoded Ed25519 public signing key (optional)
         """
         # Upsert key bundle
         result = await self.db.execute(
@@ -58,6 +60,8 @@ class EncryptionService:
             existing.signed_prekey = signed_prekey_public
             existing.signed_prekey_signature = signed_prekey_signature
             existing.signed_prekey_id = signed_prekey_id
+            if signing_key is not None:
+                existing.signing_key = signing_key
             existing.updated_at = utc_now()
         else:
             bundle = UserKeyBundle(
@@ -66,6 +70,7 @@ class EncryptionService:
                 signed_prekey=signed_prekey_public,
                 signed_prekey_signature=signed_prekey_signature,
                 signed_prekey_id=signed_prekey_id,
+                signing_key=signing_key,
             )
             self.db.add(bundle)
 
@@ -119,6 +124,7 @@ class EncryptionService:
                 "user_id": user_id,
                 "identity_key": cached_bundle["identity_key"],
                 "signed_prekey": cached_bundle["signed_prekey"],
+                "signing_key": cached_bundle.get("signing_key"),
                 "one_time_prekey": None,
             }
         else:
@@ -138,13 +144,15 @@ class EncryptionService:
                     "public_key": bundle.signed_prekey,
                     "signature": bundle.signed_prekey_signature,
                 },
+                "signing_key": bundle.signing_key,
                 "one_time_prekey": None,
             }
 
-            # Cache stable parts (identity key + signed prekey) for 10 minutes
+            # Cache stable parts (identity key + signed prekey + signing key) for 10 minutes
             await cache.set(cache_key, {
                 "identity_key": bundle.identity_key,
                 "signed_prekey": response["signed_prekey"],
+                "signing_key": bundle.signing_key,
             }, ttl=600)
 
         # Always fetch OPK from DB (consumed per-call, not cacheable)
