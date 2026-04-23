@@ -31,6 +31,10 @@ class KeyBundleUpload(BaseModel):
         default_factory=list,
         description="List of one-time pre-keys",
     )
+    signing_key: Optional[str] = Field(
+        None,
+        description="Base64-encoded Ed25519 public signing key for SPK signature verification",
+    )
 
     class Config:
         json_schema_extra = {
@@ -58,6 +62,10 @@ class KeyBundleResponse(BaseModel):
     one_time_prekey: Optional[PreKeyData] = Field(
         None,
         description="One-time pre-key (consumed after fetch)",
+    )
+    signing_key: Optional[str] = Field(
+        None,
+        description="Base64-encoded Ed25519 public signing key for SPK signature verification",
     )
 
     class Config:

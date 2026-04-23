@@ -65,6 +65,7 @@ async def upload_key_bundle(
                 {"key_id": opk.key_id, "public_key": opk.public_key}
                 for opk in bundle_data.one_time_prekeys
             ],
+            signing_key=bundle_data.signing_key,
         )
 
         return {"success": True, "message": "Key bundle uploaded"}
