@@ -101,7 +101,7 @@ class EncryptionService:
         )
 
     async def get_key_bundle(
-        self, user_id: str
+        self, user_id: str, requesting_user_id: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """
         Fetch a user's key bundle for session establishment.
@@ -109,12 +109,28 @@ class EncryptionService:
         Returns the identity key, signed pre-key, and consumes ONE
         one-time pre-key (deleted after fetch to prevent replay).
 
+        An idempotency cache (30s TTL) keyed on (requesting_user_id, user_id)
+        returns the same OPK for rapid duplicate requests (e.g. two browser tabs),
+        preventing double-session creation.
+
         Args:
             user_id: User ID whose bundle to fetch
+            requesting_user_id: User ID making the request (for idempotency cache)
 
         Returns:
             Key bundle dict or None if user has no bundle
         """
+        # OPK idempotency cache: same requester + same target within 30s returns same bundle
+        if requesting_user_id:
+            opk_idempotency_key = f"opk_cache:{requesting_user_id}:{user_id}"
+            cached_response = await cache.get(opk_idempotency_key)
+            if cached_response is not None:
+                logger.info(
+                    f"[ENCRYPTION] OPK idempotency cache hit for "
+                    f"requester={requesting_user_id} target={user_id}"
+                )
+                return cached_response
+
         # Try Redis cache for stable key bundle data (identity key + signed prekey)
         cache_key = f"keybundle:{user_id}"
         cached_bundle = await cache.get(cache_key)
@@ -180,6 +196,10 @@ class EncryptionService:
             logger.warning(
                 f"[ENCRYPTION] No OPKs available for user {user_id}"
             )
+
+        # Cache the full response (including OPK) for 30s idempotency window
+        if requesting_user_id:
+            await cache.set(opk_idempotency_key, response, ttl=30)
 
         return response
 
@@ -370,6 +390,21 @@ class EncryptionService:
             encrypted_distributions: List of {recipient_id, encrypted_key, nonce, ephemeral_public_key}
         """
         from app.core.websocket import connection_manager
+        from app.models.conversation import ConversationMember
+        from fastapi import HTTPException
+
+        # Verify sender is a member of the conversation before storing any data
+        membership = await self.db.execute(
+            select(ConversationMember).where(
+                ConversationMember.conversation_id == conversation_id,
+                ConversationMember.user_id == sender_id,
+            )
+        )
+        if not membership.scalar_one_or_none():
+            raise HTTPException(
+                status_code=403,
+                detail="Not a member of this conversation",
+            )
 
         if encrypted_distributions:
             # WhatsApp/Signal pattern: store per-recipient encrypted blobs

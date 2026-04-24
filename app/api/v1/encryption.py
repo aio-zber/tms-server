@@ -115,7 +115,8 @@ async def get_key_bundle(
             )
 
         service = EncryptionService(db)
-        bundle = await service.get_key_bundle(target_user.id)
+        requester_id = current_user["local_user_id"]
+        bundle = await service.get_key_bundle(target_user.id, requesting_user_id=requester_id)
 
         if not bundle:
             raise HTTPException(
