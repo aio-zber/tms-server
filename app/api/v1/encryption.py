@@ -23,6 +23,8 @@ from app.schemas.encryption import (
     KeyBackupUpload,
     KeyBackupResponse,
     KeyBackupStatusResponse,
+    SSOBackupCreateRequest,
+    SSOBackupRestoreResponse,
     ConversationKeyBackupUpload,
     ConversationKeyBackupResponse,
     ConversationKeyBackupListResponse,
@@ -369,6 +371,76 @@ async def get_key_backup_status(
     user_id = current_user["local_user_id"]
     service = EncryptionService(db)
     return await service.has_key_backup(user_id)
+
+
+# ==================== SSO Backup Endpoints ====================
+
+
+@router.post(
+    "/keys/backup/sso-create",
+    status_code=status.HTTP_200_OK,
+    summary="Create SSO-protected key backup",
+    description="Encrypt key material server-side for TMS-login-based recovery.",
+)
+@limiter.limit("5/minute")
+async def create_sso_backup(
+    request: Request,
+    data: SSOBackupCreateRequest,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Store a server-encrypted key backup (SSO fallback path)."""
+    try:
+        user_id = current_user["local_user_id"]
+        service = EncryptionService(db)
+        await service.create_sso_backup(
+            user_id=user_id,
+            key_material_b64=data.key_material,
+            identity_key_hash=data.identity_key_hash,
+        )
+        return {"success": True, "message": "SSO key backup created"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[ENCRYPTION] create_sso_backup failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create SSO backup: {type(e).__name__}",
+        )
+
+
+@router.post(
+    "/keys/backup/sso-restore",
+    response_model=SSOBackupRestoreResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Restore keys via SSO",
+    description="Decrypt and return the SSO key backup for the authenticated user.",
+)
+@limiter.limit("3/minute")
+async def restore_sso_backup(
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return decrypted key material for an SSO-backed-up user (audit-logged)."""
+    try:
+        user_id = current_user["local_user_id"]
+        service = EncryptionService(db)
+        result = await service.restore_sso_backup(user_id)
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No SSO backup found",
+            )
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[ENCRYPTION] restore_sso_backup failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to restore SSO backup: {type(e).__name__}",
+        )
 
 
 # ==================== Conversation Key Backup Endpoints ====================

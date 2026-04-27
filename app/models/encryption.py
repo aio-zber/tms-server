@@ -253,6 +253,11 @@ class KeyBackup(Base):
         doc="SHA-256 hex hash of the public identity key",
     )
 
+    backup_type: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="pin",
+        doc="How the backup is protected: 'pin' (Argon2id) or 'sso' (server HMAC)",
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

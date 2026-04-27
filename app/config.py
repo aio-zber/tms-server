@@ -46,6 +46,7 @@ class Settings(BaseSettings):
 
     # Security
     jwt_secret: str = Field(..., min_length=32, description="JWT secret key (min 32 chars)")
+    server_key_backup_secret: str = Field(..., min_length=32, description="Server-side key backup HMAC secret (min 32 chars)")
     jwt_algorithm: str = Field(default="HS256", description="JWT algorithm")
     jwt_expiration_hours: int = Field(default=24, description="JWT expiration time in hours")
     nextauth_secret: str = Field(..., min_length=32, description="NextAuth secret key from GCGC TMS (same as NEXTAUTH_SECRET)")
