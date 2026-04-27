@@ -516,7 +516,7 @@ async def get_all_conversation_keys(
     summary="Fetch conversation key backup",
     description="Retrieve the encrypted conversation key for multi-device session recovery.",
 )
-@limiter.limit("60/minute")
+@limiter.limit("120/minute")
 async def get_conversation_key(
     request: Request,
     conversation_id: str,
