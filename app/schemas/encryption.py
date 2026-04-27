@@ -191,6 +191,7 @@ class KeyBackupUpload(BaseModel):
     identity_key_hash: str = Field(
         ..., max_length=64, description="SHA-256 hex hash of public identity key"
     )
+    backup_type: str = Field(default="pin", pattern="^(pin|sso)$", description="Backup protection type")
 
 
 class KeyBackupResponse(BaseModel):
@@ -203,6 +204,7 @@ class KeyBackupResponse(BaseModel):
     version: int
     identity_key_hash: str
     created_at: str
+    backup_type: str = "pin"
 
 
 class KeyBackupStatusResponse(BaseModel):
@@ -211,6 +213,21 @@ class KeyBackupStatusResponse(BaseModel):
     has_backup: bool
     created_at: Optional[str] = None
     identity_key_hash: Optional[str] = None
+    backup_type: Optional[str] = None
+
+
+class SSOBackupCreateRequest(BaseModel):
+    """Request to create a server-encrypted SSO backup."""
+
+    key_material: str = Field(..., description="Base64 plaintext key material (JSON)")
+    identity_key_hash: str = Field(..., max_length=64, description="SHA-256 hex hash of public identity key")
+
+
+class SSOBackupRestoreResponse(BaseModel):
+    """Response from SSO backup restore — server decrypts and returns plaintext."""
+
+    key_material: str = Field(..., description="Base64 plaintext key material")
+    identity_key_hash: str = Field(..., description="SHA-256 hex hash for client verification")
 
 
 # ==================== Conversation Key Backup Schemas ====================

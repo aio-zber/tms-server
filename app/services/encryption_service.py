@@ -517,6 +517,7 @@ class EncryptionService:
         key_derivation: str,
         version: int,
         identity_key_hash: str,
+        backup_type: str = "pin",
     ) -> None:
         """
         Create or update an encrypted key backup.
@@ -542,6 +543,7 @@ class EncryptionService:
             existing.key_derivation = key_derivation
             existing.version = version
             existing.identity_key_hash = identity_key_hash
+            existing.backup_type = backup_type
             existing.updated_at = utc_now()
         else:
             self.db.add(KeyBackup(
@@ -552,12 +554,13 @@ class EncryptionService:
                 key_derivation=key_derivation,
                 version=version,
                 identity_key_hash=identity_key_hash,
+                backup_type=backup_type,
             ))
 
         await self.db.commit()
         await cache.delete(f"keybackup:status:{user_id}")
 
-        logger.info(f"[ENCRYPTION] Key backup upserted for user {user_id}")
+        logger.info(f"[ENCRYPTION] Key backup upserted for user {user_id} (type={backup_type})")
 
     async def get_key_backup(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Fetch the encrypted key backup for a user."""
@@ -576,6 +579,7 @@ class EncryptionService:
             "key_derivation": backup.key_derivation,
             "version": backup.version,
             "identity_key_hash": backup.identity_key_hash,
+            "backup_type": backup.backup_type,
             "created_at": backup.created_at.isoformat(),
         }
 
@@ -596,10 +600,68 @@ class EncryptionService:
             "has_backup": backup is not None,
             "created_at": backup.created_at.isoformat() if backup else None,
             "identity_key_hash": backup.identity_key_hash if backup else None,
+            "backup_type": backup.backup_type if backup else None,
         }
 
         await cache.set(cache_key, status, ttl=300)
         return status
+
+    async def create_sso_backup(
+        self,
+        user_id: str,
+        key_material_b64: str,
+        identity_key_hash: str,
+    ) -> None:
+        """
+        Encrypt key material server-side and store as an SSO backup.
+
+        The server encrypts using HMAC-SHA256(SERVER_KEY_BACKUP_SECRET, user_id) as
+        the secretbox key. On restore, the server decrypts and returns plaintext over
+        TLS — caller must be authenticated (same trust level as Messenger account backup).
+        """
+        from app.core.sso_backup_crypto import encrypt_sso_backup
+        import base64
+
+        plaintext = base64.b64decode(key_material_b64)
+        encrypted_data_b64, nonce_b64 = encrypt_sso_backup(plaintext, user_id)
+
+        await self.upsert_key_backup(
+            user_id=user_id,
+            encrypted_data=encrypted_data_b64,
+            nonce=nonce_b64,
+            salt="",
+            key_derivation="hmac-server",
+            version=1,
+            identity_key_hash=identity_key_hash,
+            backup_type="sso",
+        )
+
+    async def restore_sso_backup(self, user_id: str) -> Optional[Dict[str, str]]:
+        """
+        Decrypt and return the SSO backup for an authenticated user.
+
+        Returns None if no SSO backup exists. The caller (endpoint) should map
+        None → 404 so the client can fall back to PIN or contact support.
+        """
+        from app.core.sso_backup_crypto import decrypt_sso_backup
+        import base64
+
+        result = await self.db.execute(
+            select(KeyBackup).where(KeyBackup.user_id == user_id)
+        )
+        backup = result.scalar_one_or_none()
+
+        if not backup or backup.backup_type != "sso":
+            return None
+
+        plaintext = decrypt_sso_backup(backup.encrypted_data, backup.nonce, user_id)
+        key_material_b64 = base64.b64encode(plaintext).decode()
+
+        logger.info(f"[ENCRYPTION] SSO backup restored for user {user_id} (audit)")
+        return {
+            "key_material": key_material_b64,
+            "identity_key_hash": backup.identity_key_hash,
+        }
 
     # ==================== Conversation Key Backup ====================
 
